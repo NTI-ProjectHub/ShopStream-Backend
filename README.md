@@ -1,6 +1,6 @@
 # ShopStream 🛒💻
 
-**ShopStream** is a modern e-commerce web application built with **Angular** and **.NET Core Web API**.
+**ShopStream** is a modern e-commerce web application built with **Angular** and **Node JS**.
 The platform allows users to browse, search, and purchase products seamlessly while providing a smooth and responsive user experience.
 
 Key features include:
