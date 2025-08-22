@@ -23,3 +23,18 @@ exports.uploadCloud = async (req, res, next) => {
         });
     }
 };
+
+// function to delete image from cloudinary by using imageURL
+exports.deleteCloud = async (imageURL) => {
+    if (!imageURL) return null;
+    try {
+        const parts = imageURL.split('/');
+        const lastPart = parts.slice(-2).join('/'); // e.g., v12345/folder/file.jpg
+        const publicId = lastPart.replace(/\.[^/.]+$/, ''); // remove extension
+        const result = await cloudinary.uploader.destroy(publicId);
+        return result;
+    } catch (error) {
+        console.error("Cloudinary delete error:", error);
+        throw error;
+    }
+};

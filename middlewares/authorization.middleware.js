@@ -19,3 +19,11 @@ exports.roleCheck = (roles) => {
         }
     }
 };
+
+exports.checkRestaurantAuthorization = function (req, menu) {
+    if (menu.restaurantId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+        const error = new Error('You are not authorized to perform this action');
+        error.status = 403;
+        throw error;
+    }
+}

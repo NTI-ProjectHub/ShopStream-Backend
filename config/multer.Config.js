@@ -1,6 +1,6 @@
 const multer = require('multer');
 
-// === File filter to only allow images ===
+// File filter to only allow images
 const fileFilter = (req, file, cb) => {
   if (file.mimetype.startsWith('image/')) {
     cb(null, true);
@@ -9,7 +9,7 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// === Use memory storage instead of disk storage ===
+// memory storage instead of disk storage
 const storage = multer.memoryStorage();
 
 const upload = multer({
