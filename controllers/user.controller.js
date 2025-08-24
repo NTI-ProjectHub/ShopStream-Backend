@@ -35,8 +35,10 @@ exports.register = async (req, res) => {
         await user.save();
         res.status(201).json({ message: 'User registered successfully' });
     } catch (error) {
-        console.error('Error during registration:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        res.status(500).json({ 
+            message: 'Internal server error',
+            process: "User Registration"
+        });
     }
 }
 
@@ -98,8 +100,10 @@ exports.login = async (req, res) => {
 
     }
     catch (error) {
-        console.error('Error during login:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        res.status(500).json({ 
+            message: 'Internal server error',
+            process: "User Login"
+        });
     }
 }
 
@@ -120,7 +124,9 @@ exports.logout = async (req, res) => {
         res.status(200).json({ message: 'Logout successful' });
     }
     catch (error) {
-        console.error('Error during logout:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        res.status(500).json({ 
+            message: 'Internal server error',
+            process: "User Logout"
+        });
     }
 }
