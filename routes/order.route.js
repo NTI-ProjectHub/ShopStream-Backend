@@ -5,7 +5,7 @@ const {authenticate} = require('../middlewares/authentication.middleware');
 const {roleCheck} = require('../middlewares/authorization.middleware');
 
 router.post('/' , authenticate , roleCheck(['customer','admin']) , orderController.placeOrder);
-router.post('/:id' , authenticate , roleCheck(['customer','admin']) , orderController.addOrderItem);
+router.post('/:id' , authenticate , roleCheck(['customer','admin']) , orderController.cancelOrder);
 router.get('/' , authenticate , roleCheck(['customer','restaurant','admin']) , orderController.getOrders);
 router.get('/:id' , authenticate , roleCheck(['customer','restaurant','admin']) , orderController.getOrderById);
 
