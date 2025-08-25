@@ -1,31 +1,48 @@
-const { get } = require('mongoose');
-const Menu = require('../models/menu.model');
-const MenuItem = require('../models/menuItem.model');
+const Menu = require('../models/menu/menu.model');
 const Restaurant = require('../models/restaurant.model');
-const dataAccessHelper = require('../utils/Helper/dataAccess');
+const {getMenuById , getMenuItemsByMenuId, getMenuByUserId} = require('../utils/Helper/dataAccess');
 const {checkRestaurantAuthorization} = require('../middlewares/authorization.middleware')
 const cloud = require('../utils/cloud');
+const MenuItem = require('../models/menu/menuItem.model');
+const {pagination} = require('../utils/pagination');
 
 exports.getRestaurantMenuItems = async (req, res) => {
     try {
-        if(!req.user) {
-            return res.status(401).json({ message: 'You Have To login First' });
+        if (!req.user) {
+            return res.status(401).json({ message: 'You have to login first' });
         }
-        const menuItems = await dataAccessHelper.getMenuItemsByRestaurantId(req.params.restaurantId);
-        if (!menuItems) {
-            return res.status(404).json({ message: 'This Menu has no items' });
+
+        console.log("User ID from req.user:", req.user._id);
+
+        // ✅ Find menu for this user
+        const menu = await getMenuByUserId(req.user._id);
+        if (!menu) {
+            return res.status(404).json({ message: "Menu not found for this restaurant" });
         }
-        res.status(200).json({
+        console.log("Menu ID from user:", menu._id);
+
+        // ✅ Use pagination directly instead of extra query
+        const { total, page, limit, data } = await pagination(MenuItem, req, { menuId: menu._id });
+
+        if (total === 0) {
+            return res.status(404).json({ message: "This menu has no items" });
+        }
+
+        return res.status(200).json({
             message: 'Menu items found',
-            menuItems
+            result: total,
+            meta: { page, limit },
+            data: data
         });
+
     } catch (error) {
-        res.status(500).json({ 
+        console.error("Menu Retrieval Error:", error);
+        return res.status(500).json({
             message: 'Internal server error',
             process: "Menu Retrieval"
         });
     }
-}
+};
 
 // restaurant make new menu
 exports.createMenu = async (req, res) => {
@@ -41,8 +58,7 @@ exports.createMenu = async (req, res) => {
             return res.status(404).json({ message: 'Restaurant not found' });
         }
 
-        const existingMenu = await dataAccessHelper.getMenuByRestaurantId(req.params.restaurantId);
-        if (existingMenu) {
+        if (!restaurant.menuId) {
             return res.status(400).json({ message: "This restaurant already have a menu" });
         }
         const menu = new Menu({
@@ -51,12 +67,16 @@ exports.createMenu = async (req, res) => {
             description,
             image: req.menuImage || null, // store the Cloudinary link
         });
-
         await menu.save();
+
+        restaurant.menuId = menu._id;
+        await restaurant.save();
 
         return res.status(201).json({
             message: 'Menu created successfully',
-            menu
+            result: 1,
+            meta: {},
+            data: menu
         });
 
     } catch (error) {
@@ -86,7 +106,9 @@ exports.updateMenu = async (req, res) => {
         await menu.save();
         return res.status(200).json({
             message: 'Menu updated successfully',
-            menu
+            result: 1,
+            meta: {},
+            data: menu
         });
     } catch (error) {
         console.error("Menu Update Error:", error);
@@ -110,7 +132,9 @@ exports.deleteMenu = async (req, res) => {
         await menu.deleteOne();
         return res.status(200).json({
             message: 'Menu deleted successfully',
-            menu
+            result: 1,
+            meta: {},
+            data: menu
         });
     } catch (error) {
         console.error("Menu Deletion Error:", error);
@@ -121,8 +145,10 @@ exports.deleteMenu = async (req, res) => {
     }
 }
 
+
+
 async function getMenuAndAuthorize(req, menuId) {
-    const menu = await dataAccessHelper.getMenuById(menuId);
+    const menu = await getMenuById(menuId);
     if (!menu) {
         const error = new Error('Menu not found');
         error.status = 404;

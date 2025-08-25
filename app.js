@@ -13,7 +13,7 @@ const initial = require('./utils/initial');
 connectDB();
 
 // initail data
-//initial.all();
+//initial.seedAll();
 
 // Middlewares
 app.use(cors());

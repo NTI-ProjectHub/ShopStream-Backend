@@ -1,6 +1,6 @@
-const MenuItem = require('../models/menuItem.model');
-const Menu = require('../models/menu.model');
-
+const MenuItem = require('../models/menu/menuItem.model');
+const Menu = require('../models/menu/menu.model');
+const {getMenuByUserId,getMenuByRestaurantId} = require('../utils/Helper/dataAccess');
 exports.createItem = async (req, res) => {
     try {
         if(!req.user) {
@@ -9,25 +9,37 @@ exports.createItem = async (req, res) => {
         const { name, description, price } = req.body;
         let menu;
         if(req.user.role === 'restaurant') {
-            const menu = await Menu.findOne({ restaurantId: req.user._id });
+            menu = await getMenuByUserId(req.user._id);
         } else {
             const restaurantId = req.body.restaurantId;
-            const menu = await Menu.findOne({ restaurantId:restaurantId });
+            menu = await getMenuByRestaurantId(restaurantId);
         }
 
         if (!menu) {
             return res.status(404).json({ message: 'Menu not found' });
         }
-        const menuItem = new MenuItem({
-            menuId: menu._id,
-            name,
-            description,
-            price,
-        });
-        await menuItem.save();
+
+        if(menu.subMenus && menu.subMenus.length > 0) {
+            const subMenu = menu.subMenus.find(subMenu => subMenu._id.toString() === req.body.subMenuId);
+            subMenu.items.push(menuItem._id);
+            await subMenu.save();
+        } else {
+            const menuItem = new MenuItem({
+                menuId: menu._id,
+                name,
+                description,
+                price,
+            });
+            await menuItem.save();
+
+            menu.items.push(menuItem._id);
+            await menu.save();
+        }
         res.status(201).json({
             message: 'Menu item created successfully',
-            menuItem
+            result: 1,
+            meta: {},
+            data: menuItem
         });
     } catch (error) {
         res.status(500).json({ 
@@ -66,7 +78,9 @@ exports.updateItem = async (req, res) => {
         await menuItem.save();
         res.status(200).json({
             message: 'Menu item updated successfully',
-            menuItem
+            result: 1,
+            meta: {},
+            data: menuItem
         });
     } catch (error) {
         res.status(500).json({ 

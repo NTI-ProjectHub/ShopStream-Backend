@@ -43,6 +43,11 @@ const restaurantSchema = new mongoose.Schema({
         enum: ['open', 'closed'],
         default: 'open'
     },
+    menuId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Menu',
+        default: null
+    },
 },
 {timestamps: true}
 );
