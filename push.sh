@@ -1,2 +1,2 @@
 #!/bin/bash
-git push origin Development && git push zack main
+git push origin Development && git push zack Development
