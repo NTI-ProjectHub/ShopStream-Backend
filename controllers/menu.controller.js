@@ -145,8 +145,6 @@ exports.deleteMenu = async (req, res) => {
     }
 }
 
-
-
 async function getMenuAndAuthorize(req, menuId) {
     const menu = await getMenuById(menuId);
     if (!menu) {

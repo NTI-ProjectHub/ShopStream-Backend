@@ -38,15 +38,18 @@ const restaurantSchema = new mongoose.Schema({
             message: props => `${props.value} is not a valid phone number!`
         }
     },
+    coverImage: {
+        type: String,
+        required: true
+    },
     status: {
         type: String,
-        enum: ['open', 'closed'],
-        default: 'open'
+        enum: ['pending', 'open', 'closed'],
+        default: 'pending'
     },
     menuId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Menu',
-        default: null
     },
 },
 {timestamps: true}

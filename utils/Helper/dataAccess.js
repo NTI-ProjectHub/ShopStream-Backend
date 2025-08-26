@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const { Types: { ObjectId } } = mongoose;
 const User = require('../../models/user.model');
-const Restaurant = require('../../models/restaurant.model');
+const Restaurant = require('../../models/restaurant/restaurant.model');
 const Menu = require('../../models/menu/menu.model');
 const SubMenu = require('../../models/menu/subMenu.model');
 const MenuItem = require('../../models/menu/menuItem.model');
