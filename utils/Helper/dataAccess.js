@@ -172,7 +172,7 @@ exports.getOrderById = async (id) => {
 exports.getOrdersByUserId = async (id) => {
     try {
         let orders;
-        const role = await exports.getUserById(id).role;
+        const role = (await exports.getUserById(id)).role;
         if (!role) {
             console.log('User Not Found / Try to Login first');
             return null;
