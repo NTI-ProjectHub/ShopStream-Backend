@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
-const { dropSearchIndex } = require('./user.model');
 
-const menuItemSchema = new mongoose.Schema({
+const subMenuSchema = new mongoose.Schema({
     menuId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Menu',
@@ -21,10 +20,13 @@ const menuItemSchema = new mongoose.Schema({
         minlength: 10,
         maxlength: 500
     },
-    price: {
-        type: Number,
+    category: {
+        type: String,
         required: true,
-        min: 0
+        enum: ['Breakfast', 'Brunch', 'Lunch', 'Dinner', 'Snacks', 'Dessert', 'Drinks'],
+        trim: true,
+        minlength: 3,
+        maxlength: 50
     },
     image: {
         type: String,
@@ -36,6 +38,6 @@ const menuItemSchema = new mongoose.Schema({
     },
 });
 
-const MenuItem = mongoose.model('MenuItem', menuItemSchema);
+const SubMenu = mongoose.model('SubMenu', subMenuSchema);
 
-module.exports = MenuItem;
+module.exports = SubMenu;

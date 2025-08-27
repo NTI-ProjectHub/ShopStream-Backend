@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
+const Restaurant = require('./restaurant.model');
 
-const orderSchema = new mongoose.Schema({
-    customerId: {
+const restaurantRequestSchema = new mongoose.Schema({
+    userId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true
@@ -16,20 +17,21 @@ const orderSchema = new mongoose.Schema({
         ref: 'User',
         default: null
     },
-    totalPrice: {
-        type: Number,
-        required: true,
-        min: 0
+    type: {
+        type: String,
+        enum: ['create' , 'delete'],
+        default: 'create'
     },
     status: {
         type: String,
-        enum: ['pending', 'approved', 'preparing', 'ready', 'completed' , 'cancelled'],
+        enum: ['pending', 'approved', 'rejected'],
         default: 'pending'
-    },
+    }
 },
-{timestamps: true}
-);
+{
+    timestamps: true
+});
 
-const Order = mongoose.model('Order', orderSchema);
+const RestaurantRequest = mongoose.model('RestaurantRequest', restaurantRequestSchema);
 
-module.exports = Order;
+module.exports = RestaurantRequest;

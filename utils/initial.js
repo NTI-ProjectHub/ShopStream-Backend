@@ -1,94 +1,102 @@
 const User = require('../models/user.model');
-const Restaurant = require('../models/restaurant.model');
-const Menu = require('../models/menu.model');
-const MenuItem = require('../models/menuItem.model');
-const Order = require('../models/order.model');
-const OrderItem = require('../models/orderItem.model');
+const Restaurant = require('../models/restaurant/restaurant.model');
+const Menu = require('../models/menu/menu.model');
+const MenuItem = require('../models/menu/menuItem.model');
+const Order = require('../models/order/order.model');
+const OrderItem = require('../models/order/orderItem.model');
 const hashPassword = require('./hashPassword');
 
-exports.ClearDB = async() => {
-    await User.deleteMany({});
-    await Restaurant.deleteMany({});
-    await Menu.deleteMany({});
-    await MenuItem.deleteMany({});
-    await Order.deleteMany({});
-    await OrderItem.deleteMany({});
-}
+// === Clear Database ===
+exports.clearDB = async () => {
+  await Promise.all([
+    User.deleteMany({}),
+    Restaurant.deleteMany({}),
+    Menu.deleteMany({}),
+    MenuItem.deleteMany({}),
+    Order.deleteMany({}),
+    OrderItem.deleteMany({})
+  ]);
+  console.log("✅ Database cleared");
+};
 
-exports.Customer = async() => {
-    const password = await hashPassword.hash("123456");
-    const user = new User({
-        name: "Customer",
-        username: "customer",
-        email: "customer@customer.com",
-        password: password,
-        phone: "123456789",
-        role: "customer",
-    });
-    await user.save();
-    return user;
-}
+// === Seed Users ===
+exports.seedCustomer = async () => {
+  const password = await hashPassword.hash("123456");
+  const user = new User({
+    name: "Customer",
+    username: "customer",
+    email: "customer@customer.com",
+    password,
+    phone: "123456789",
+    role: "customer",
+  });
+  await user.save();
+  return user;
+};
 
-exports.Restaurant = async() => {
-    const password = await hashPassword.hash("123456");
-    const user =  new User({
-        name: "Restaurant",
-        username: "restaurant",
-        email: "restaurant@restaurant.com",
-        password: password,
-        phone: "123456789",
-        role: "restaurant",
-    });
-    await user.save();
+exports.seedRestaurant = async () => {
+  const password = await hashPassword.hash("123456");
+  const user = new User({
+    name: "Restaurant",
+    username: "restaurant",
+    email: "restaurant@restaurant.com",
+    password,
+    phone: "123456789",
+    role: "restaurant",
+  });
+  await user.save();
 
-    const restaurant = new Restaurant({
-        userId: user._id,
-        name: "Dagag bondok",
-        description: "Delicious bondok",
-        address: "123 Main St",
-        phone: user.phone,
-        status: "open",
-    });
-    await restaurant.save();
-    return restaurant;
-}
+  const restaurant = new Restaurant({
+    userId: user._id,
+    name: "Dagag bondok",
+    description: "Delicious bondok",
+    address: "123 Main St",
+    phone: user.phone,
+    status: "open",
+  });
+  await restaurant.save();
 
-exports.Admin = async() => {
-    const password = await hashPassword.hash("123456");
-    const user = new User({
-        name: "Admin",
-        username: "admin",
-        email: "admin@admin.com",
-        password: password,
-        phone: "123456789",
-        role: "admin",
-    });
-    await user.save();
-    return user;
-}
+  return restaurant;
+};
 
-exports.Menu = async(restaurant) => {
-    const menu = new Menu({
-        restaurantId: restaurant._id,
-        name: "Salta3 Burger",
-        description: "Delicious burgers",
-    });
-    await menu.save();
-    return menu;
-}
+exports.seedAdmin = async () => {
+  const password = await hashPassword.hash("123456");
+  const user = new User({
+    name: "Admin",
+    username: "admin",
+    email: "admin@admin.com",
+    password,
+    phone: "123456789",
+    role: "admin",
+  });
+  await user.save();
+  return user;
+};
 
-exports.MenuItem = async(menu) => {
-    const menuItem = new MenuItem({
-        menuId: menu._id,
-        name: "Salta3 Burger",
-        description: "Delicious burgers",
-        price: 10,
-    });
-    await menuItem.save();
-    return menuItem;
-}
+// === Seed Menu + Items ===
+exports.seedMenu = async (restaurant) => {
+  const menu = new Menu({
+    restaurantId: restaurant._id,
+    name: "Salta3 Burger",
+    description: "Delicious burgers",
+  });
+  await menu.save();
+  return menu;
+};
 
-exports.Order = async (customer, restaurant, admin, menuItem) => {
+exports.seedMenuItem = async (menu) => {
+  const item = new MenuItem({
+    menuId: menu._id,
+    name: "Salta3 Burger",
+    description: "Delicious burgers",
+    price: 10,
+  });
+  await item.save();
+  return item;
+};
+
+// === Seed Orders ===
+exports.seedOrder = async (customer, restaurant, admin, menuItem) => {
   const order = new Order({
     customerId: customer._id,
     restaurantId: restaurant._id,
@@ -109,17 +117,31 @@ exports.Order = async (customer, restaurant, admin, menuItem) => {
   return { order, orderItem };
 };
 
-exports.all = async () => {
+// === Seed All ===
+exports.seedAll = async () => {
   try {
-    await exports.ClearDB();
-    const customer = await exports.Customer();
-    const restaurant = await exports.Restaurant();
-    const admin = await exports.Admin();
-    const menu = await exports.Menu(restaurant);
-    const menuItem = await exports.MenuItem(menu);
-    const order = await exports.Order(customer, restaurant, admin, menuItem);
-    console.log("✅ Initial data seeded:", { customer, restaurant, admin, menu, menuItem, order });
+    await exports.clearDB();
+
+    const customer = await exports.seedCustomer();
+    const restaurant = await exports.seedRestaurant();
+    const admin = await exports.seedAdmin();
+    const menu = await exports.seedMenu(restaurant);
+    const menuItem = await exports.seedMenuItem(menu);
+    const { order, orderItem } = await exports.seedOrder(customer, restaurant, admin, menuItem);
+
+    console.log("✅ Initial data seeded successfully:", {
+      customer: customer._id,
+      restaurant: restaurant._id,
+      admin: admin._id,
+      menu: menu._id,
+      menuItem: menuItem._id,
+      order: order._id,
+      orderItem: orderItem._id
+    });
+
+    return { customer, restaurant, admin, menu, menuItem, order, orderItem };
   } catch (err) {
     console.error("❌ Error seeding initial data:", err);
+    throw err;
   }
 };

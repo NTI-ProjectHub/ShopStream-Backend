@@ -12,9 +12,6 @@ exports.register = async (req, res) => {
         if(!username || !email || !password){
             return res.status(400).json({ message: 'All fields are required' });
         }
-        if(!name) {
-            name = username; // Default name
-        }
 
         // Check if the username or email already exists
         const existingUser = await User.findOne({ username });
@@ -31,9 +28,26 @@ exports.register = async (req, res) => {
         
         // Create a new user
         name = name.trim();
-        const user = new User({name,username,email,password:hashedPassword});
+        const user = new User({
+            name:name||username,
+            username,
+            email,
+            password:hashedPassword
+        });
         await user.save();
-        res.status(201).json({ message: 'User registered successfully' });
+        res.status(201).json({ 
+            message: 'User registered successfully',
+            result: 1,
+            meta: {},
+            data: {
+                user: {
+                    name: user.name,
+                    username: user.username,
+                    email: user.email,
+                    role: user.role,
+                }
+            }
+        });
     } catch (error) {
         res.status(500).json({ 
             message: 'Internal server error',
@@ -89,11 +103,15 @@ exports.login = async (req, res) => {
         // Respond with user details and access token
         return res.status(200).json({
             message: 'Login successful',
-            user: {
-                name: user.name,
-                username: user.username,
-                email: user.email,
-                role: user.role,
+            result: 1,
+            meta: {},
+            data: {
+                user: {
+                    name: user.name,
+                    username: user.username,
+                    email: user.email,
+                    role: user.role,
+                },
             },
             token: jwt.generateAccessToken(user)
         });
@@ -121,7 +139,19 @@ exports.logout = async (req, res) => {
         user.sessionExpiry = Date.now();
         await user.save();
         cookie.clearCookie(res,'accessToken');
-        res.status(200).json({ message: 'Logout successful' });
+        res.status(200).json({ 
+            message: 'Logout successful',
+            result: 1,
+            meta: {},
+            data: {
+                user: {
+                    name: user.name,
+                    username: user.username,
+                    email: user.email,
+                    role: user.role,
+                }
+            }
+        });
     }
     catch (error) {
         res.status(500).json({ 
