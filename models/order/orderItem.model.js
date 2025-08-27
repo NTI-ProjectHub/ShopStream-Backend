@@ -21,8 +21,20 @@ const orderItemSchema = new mongoose.Schema({
         required: true,
         min: 0
     },
+    variationSize: {
+        type: String,
+        required: true
+    },
+    specialInstructions: {
+        type: String,
+        trim: true
+    }
+}, {
+    timestamps: true
 });
 
-const OrderItem = mongoose.model('OrderItem', orderItemSchema);
+// Index for better query performance
+orderItemSchema.index({ orderId: 1 });
 
+const OrderItem = mongoose.model('OrderItem', orderItemSchema);
 module.exports = OrderItem;

@@ -1,169 +1,460 @@
-const MenuItem = require('../models/menu/menuItem.model');
-const Menu = require('../models/menu/menu.model');
-const {getMenuByUserId,getMenuByRestaurantId} = require('../utils/Helper/dataAccess');
+const Restaurant = require("../models/restaurant/restaurant.model");
+const Menu = require("../models/menu/menu.model");
+const MenuItem = require("../models/menu/menuItem.model");
+const SubMenu = require("../models/menu/subMenu.model");
+const { pagination } = require('../utils/pagination');
+const { validationResult } = require('express-validator');
+const cloud = require("../middlewares/cloud");
+const { validateCategories, validateVariations } = require("../validators/index");
+const MESSAGES = require("../constants/messages");
+const STATUS_CODES = require("../constants/status_Codes");
+const {asyncWrapper} = require("../middlewares/asyncWrapper.middleware");
 
-exports.createItem = async (req, res) => {
-    try {
-        if(!req.user) {
-            return res.status(401).json({ message: 'You Have To login First' });
-        }
-        const { name, description, price } = req.body;
-        let menu;
-        if(req.user.role === 'restaurant') {
-            menu = await getMenuByUserId(req.user._id);
-        } else {
-            const restaurantId = req.body.restaurantId;
-            menu = await getMenuByRestaurantId(restaurantId);
-        }
 
+// Auth check
+const requireAuth = (req, res, next) => {
+    if (!req.user) {
+        return res.status(STATUS_CODES.UNAUTHORIZED).json({ 
+            success: false,
+            message: MESSAGES.AUTHENTICATION_ERROR 
+        });
+    }
+    next();
+};
+
+exports.getAllItems = asyncWrapper(async (req, res) => {
+    const { menuId } = req.params;
+
+    const menuContext = await findMenuContext(menuId);
+    if (!menuContext) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({
+            success: false,
+            message: MESSAGES.MENU_NOT_FOUND
+        });
+    }
+
+    // Check authorization
+    const authResult = await checkMenuItemOwnership(req.user, menuContext.restaurantId);
+    if (!authResult.authorized) {
+        return res.status(authResult.status).json({
+            success: false,
+            message: authResult.message
+        });
+    }
+
+    // Build query based on menu type
+    const query = {
+        parentType: menuContext.type,
+        parentId: menuContext.data._id
+    };
+
+    const { total, page, limit, data } = await pagination(MenuItem, req, query);
+
+    res.status(STATUS_CODES.OK).json({
+        success: true,
+        message: MESSAGES.ITEMS_RETRIEVED,
+        result: total,
+        meta: {
+            page,
+            limit,
+            menuType: menuContext.type,
+            menuId: menuContext.data._id,
+            restaurantId: menuContext.restaurantId
+        },
+        data
+    });
+});
+
+exports.createItem = asyncWrapper(async (req, res) => {
+    // Handle validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.VALIDATION_ERROR,
+            errors: errors.array()
+        });
+    }
+
+    const { menuId } = req.params;
+    const { name, description, category, variations } = req.body;
+
+    // Validate required fields
+    if (!name?.trim() || !description?.trim() || !category || !variations) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.ALL_FIELDS_REQUIRED
+        });
+    }
+
+    const menuContext = await findMenuContext(menuId);
+    if (!menuContext) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({
+            success: false,
+            message: MESSAGES.MENU_NOT_FOUND
+        });
+    }
+
+    // Check authorization
+    const authResult = await checkMenuItemOwnership(req.user, menuContext.restaurantId);
+    if (!authResult.authorized) {
+        return res.status(authResult.status).json({
+            success: false,
+            message: authResult.message
+        });
+    }
+
+    // Validate categories
+    const categoryValidation = validateCategories(category);
+    if (!categoryValidation.valid) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: categoryValidation.message
+        });
+    }
+
+    // Validate variations
+    const variationValidation = validateVariations(variations);
+    if (!variationValidation.valid) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: variationValidation.message
+        });
+    }
+
+    // Check for duplicate names within the same parent
+    const existingItem = await MenuItem.findOne({
+        parentType: menuContext.type,
+        parentId: menuContext.data._id,
+        name: name.trim()
+    });
+
+    if (existingItem) {
+        return res.status(STATUS_CODES.CONFLICT).json({
+            success: false,
+            message: MESSAGES.MENU_ITEM_NAME_EXISTS
+        });
+    }
+
+    // Create menu item
+    const menuItem = new MenuItem({
+        parentType: menuContext.type,
+        parentId: menuContext.data._id,
+        name: name.trim(),
+        description: description.trim(),
+        category: categoryValidation.sanitized,
+        variations: variations,
+        image: req.menuImage || null,
+    });
+
+    await menuItem.save();
+    
+    return res.status(STATUS_CODES.CREATED).json({
+        success: true,
+        message: MESSAGES.ITEM_CREATED,
+        meta: {
+            itemId: menuItem._id,
+            parentType: menuContext.type,
+            parentId: menuContext.data._id
+        },
+        data: menuItem,
+    });
+});
+
+exports.updateItem = asyncWrapper(async (req, res) => {
+    // Handle validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.VALIDATION_ERROR,
+            errors: errors.array()
+        });
+    }
+    
+    const { itemId } = req.params;
+    const { name, description, variations, category } = req.body;
+    
+    const menuItem = await MenuItem.findById(itemId);
+    if (!menuItem) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({
+            success: false,
+            message: MESSAGES.MENU_ITEM_NOT_FOUND
+        });
+    }
+
+    // Get menu context for authorization
+    let restaurantId;
+    if (menuItem.parentType === "Menu") {
+        const menu = await Menu.findById(menuItem.parentId);
         if (!menu) {
-            return res.status(404).json({ message: 'Menu not found' });
-        }
-
-        if(menu.subMenus && menu.subMenus.length > 0) {
-            const subMenu = menu.subMenus.find(subMenu => subMenu._id.toString() === req.body.subMenuId);
-            subMenu.items.push(menuItem._id);
-            await subMenu.save();
-        } else {
-            const menuItem = new MenuItem({
-                menuId: menu._id,
-                name,
-                description,
-                price,
+            return res.status(STATUS_CODES.NOT_FOUND).json({
+                success: false,
+                message: "Associated menu not found"
             });
-            await menuItem.save();
-
-            menu.items.push(menuItem._id);
-            await menu.save();
         }
-        res.status(201).json({
-            message: 'Menu item created successfully',
-            result: 1,
-            meta: {},
-            data: menuItem
-        });
-    } catch (error) {
-        res.status(500).json({ 
-            message: 'Internal server error',
-            process: "Item Creation"
+        restaurantId = menu.restaurantId;
+    } else {
+        const subMenu = await SubMenu.findById(menuItem.parentId);
+        if (!subMenu) {
+            return res.status(STATUS_CODES.NOT_FOUND).json({
+                success: false,
+                message: "Associated submenu not found"
+            });
+        }
+        const menu = await Menu.findById(subMenu.menuId);
+        if (!menu) {
+            return res.status(STATUS_CODES.NOT_FOUND).json({
+                success: false,
+                message: "Associated parent menu not found"
+            });
+        }
+        restaurantId = menu.restaurantId;
+    }
+
+    // Check authorization
+    const authResult = await checkMenuItemOwnership(req.user, restaurantId);
+    if (!authResult.authorized) {
+        return res.status(authResult.status).json({
+            success: false,
+            message: authResult.message
         });
     }
-}
 
-exports.updateItem = async (req, res) => {
-    try {
-        if(!req.user) {
-            return res.status(401).json({ message: 'You Have To login First' });
+    // Check for name conflicts (excluding current item)
+    if (name && name.trim() !== menuItem.name) {
+        const existingItem = await MenuItem.findOne({
+            parentType: menuItem.parentType,
+            parentId: menuItem.parentId,
+            name: name.trim(),
+            _id: { $ne: itemId }
+        });
+
+        if (existingItem) {
+            return res.status(STATUS_CODES.CONFLICT).json({
+                success: false,
+                message: MESSAGES.MENU_ITEM_NAME_EXISTS
+            });
         }
-        const { name, description, price , isAvailable } = req.body;
-        let menuItem;
-        if(req.user.role === 'restaurant') {
-            menuItem = await MenuItem.findById(req.params.itemId);
-        } else {
-            const restaurantId = req.body.restaurantId;
-            menuItem = await MenuItem.findOne({ restaurantId:restaurantId });
-            if(!menuItem) {
-                return res.status(404).json({ message: 'Menu item not found' });
+    }
+
+    // Validate and update fields
+    if (name?.trim()) {
+        menuItem.name = name.trim();
+    }
+    
+    if (description?.trim()) {
+        menuItem.description = description.trim();
+    }
+
+    if (category) {
+        const categoryValidation = validateCategories(category);
+        if (!categoryValidation.valid) {
+            return res.status(STATUS_CODES.BAD_REQUEST).json({
+                success: false,
+                message: categoryValidation.message
+            });
+        }
+        menuItem.category = categoryValidation.sanitized;
+    }
+
+    if (variations) {
+        const variationValidation = validateVariations(variations);
+        if (!variationValidation.valid) {
+            return res.status(STATUS_CODES.BAD_REQUEST).json({
+                success: false,
+                message: variationValidation.message
+            });
+        }
+        menuItem.variations = variations;
+    }
+    
+    // Handle image update
+    if (menuItem.image && req.menuImage) {
+        try {
+            await cloud.deleteCloud(menuItem.image);
+        } catch (error) {
+            console.warn('Failed to delete old image:', error.message);
+        }
+    }
+    
+    if (req.menuImage) {
+        menuItem.image = req.menuImage;
+    }
+
+    await menuItem.save();
+    
+    res.status(STATUS_CODES.OK).json({
+        success: true,
+        message: MESSAGES.ITEM_UPDATED,
+        meta: {
+            itemId: menuItem._id,
+            parentType: menuItem.parentType,
+            parentId: menuItem.parentId
+        },
+        data: menuItem,
+    });
+});
+
+exports.deleteItem = asyncWrapper(async (req, res) => {
+    const { itemId } = req.params;
+    
+    const menuItem = await MenuItem.findById(itemId);
+    if (!menuItem) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({
+            success: false,
+            message: MESSAGES.MENU_ITEM_NOT_FOUND
+        });
+    }
+
+    // Get menu context for authorization (same logic as update)
+    let restaurantId;
+    if (menuItem.parentType === "Menu") {
+        const menu = await Menu.findById(menuItem.parentId);
+        if (!menu) {
+            return res.status(STATUS_CODES.NOT_FOUND).json({
+                success: false,
+                message: "Associated menu not found"
+            });
+        }
+        restaurantId = menu.restaurantId;
+    } else {
+        const subMenu = await SubMenu.findById(menuItem.parentId);
+        if (!subMenu) {
+            return res.status(STATUS_CODES.NOT_FOUND).json({
+                success: false,
+                message: "Associated submenu not found"
+            });
+        }
+        const menu = await Menu.findById(subMenu.menuId);
+        if (!menu) {
+            return res.status(STATUS_CODES.NOT_FOUND).json({
+                success: false,
+                message: "Associated parent menu not found"
+            });
+        }
+        restaurantId = menu.restaurantId;
+    }
+
+    // Check authorization
+    const authResult = await checkMenuItemOwnership(req.user, restaurantId);
+    if (!authResult.authorized) {
+        return res.status(authResult.status).json({
+            success: false,
+            message: authResult.message
+        });
+    }
+
+    // Delete image from cloud storage
+    if (menuItem.image) {
+        try {
+            await cloud.deleteCloud(menuItem.image);
+        } catch (error) {
+            console.warn('Failed to delete image from cloud:', error.message);
+        }
+    }
+
+    await MenuItem.findByIdAndDelete(itemId);
+    
+    res.status(STATUS_CODES.OK).json({
+        success: true,
+        message: MESSAGES.ITEM_DELETED,
+        meta: {
+            deletedItemId: itemId,
+            itemName: menuItem.name
+        },
+        data: {
+            deletedItem: {
+                _id: menuItem._id,
+                name: menuItem.name,
+                parentType: menuItem.parentType,
+                parentId: menuItem.parentId
             }
         }
-        if (!menuItem) {
-            return res.status(404).json({ message: 'Menu item not found' });
-        }
-        menuItem.name = name;
-        menuItem.description = description;
-        menuItem.price = price;
-        if(req.menuImage) {
-            menuItem.image = req.menuImage;
-        }
-        menuItem.isAvailable = isAvailable;
-        await menuItem.save();
-        res.status(200).json({
-            message: 'Menu item updated successfully',
-            result: 1,
-            meta: {},
-            data: menuItem
-        });
-    } catch (error) {
-        res.status(500).json({ 
-            message: 'Internal server error',
-            process: "Item Update"
+    });
+});
+
+exports.getItemById = asyncWrapper(async (req, res) => {
+    const { itemId } = req.params;
+
+    const menuItem = await MenuItem.findById(itemId);
+    if (!menuItem) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({
+            success: false,
+            message: MESSAGES.MENU_ITEM_NOT_FOUND
         });
     }
-}
 
-exports.deleteItem = async (req, res) => {
-    try {
-        if(!req.user) {
-            return res.status(401).json({ message: 'You Have To login First' });
-        }
-        const menuItem = await MenuItem.findById(req.params.itemId);
-        checkOwner(menuItem , req.user);
-        await menuItem.remove();
-        res.status(200).json({
-            message: 'Menu item deleted successfully',
-            menuItem
-        });
-    } catch (error) {
-        res.status(500).json({ 
-            message: 'Internal server error',
-            process: "Item Deletion"
-        });
-    }
-}
-
-exports.getItemById = async (req, res) => {
-    try {
-        const menuItem = await MenuItem.findById(req.params.itemId);
-        checkOwner(menuItem , req.user);
-        if (!menuItem) {
-            return res.status(404).json({ message: 'Menu item not found' });
-        }
-        res.status(200).json({
-            message: 'Menu item retrieved successfully',
-            menuItem
-        });
-    } catch (error) {
-        res.status(500).json({ 
-            message: 'Internal server error',
-            process: "Item Retrieval"
-        });
-    }
-}
-
-exports.getAllItems = async (req, res) => {
-    try {
-        if(!req.user) {
-            return res.status(401).json({ message: 'You Have To login First' });
-        }
-        let menuItems;
-        if(req.user.role === 'restaurant') {
-            const menu = await Menu.findOne({ restaurantId: req.user._id });
-            if(!menu) {
-                return res.status(404).json({ message: 'Menu not found' });
-            }
-
-            menuItems = await MenuItem.find({ menuId: menu._id });
+    // Optional authorization check for private access
+    if (req.user) {
+        let restaurantId;
+        if (menuItem.parentType === "Menu") {
+            const menu = await Menu.findById(menuItem.parentId);
+            restaurantId = menu?.restaurantId;
         } else {
-            menuItems = await MenuItem.find();
+            const subMenu = await SubMenu.findById(menuItem.parentId);
+            const menu = subMenu ? await Menu.findById(subMenu.menuId) : null;
+            restaurantId = menu?.restaurantId;
         }
-        res.status(200).json({
-            message: 'Menu items retrieved successfully',
-            menuItems
-        });
-    } catch (error) {
-        res.status(500).json({ 
-            message: 'Internal server error',
-            process: "Items Retrieval"
+
+        if (restaurantId) {
+            const authResult = await checkMenuItemOwnership(req.user, restaurantId);
+            if (!authResult.authorized) {
+                return res.status(authResult.status).json({
+                    success: false,
+                    message: authResult.message
+                });
+            }
+        }
+    }
+
+    res.status(STATUS_CODES.OK).json({
+        success: true,
+        message: MESSAGES.ITEM_FOUND,
+        meta: {
+            itemId: menuItem._id,
+            parentType: menuItem.parentType,
+            parentId: menuItem.parentId
+        },
+        data: menuItem,
+    });
+});
+
+// Error handling middleware
+const errorHandler = (err, req, res, next) => {
+    console.error('MenuItem Controller Error:', err);
+
+    // Mongoose validation error
+    if (err.name === 'ValidationError') {
+        const errors = Object.values(err.errors).map(e => e.message);
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.VALIDATION_ERROR,
+            errors
         });
     }
-}
 
-function checkOwner(menuItem , user) {
-        const isOwner = user.role === 'restaurant' && menuItem.menuId.toString() === user._id.toString();
-        if(user.role !== 'admin' && !isOwner) {
-            return res.status(403).json({ message: 'You are not authorized to delete this menu item' });
-        }
-        if (!menuItem) {
-            return res.status(404).json({ message: 'Menu item not found' });
-        }
-}
+    // Mongoose cast error (invalid ObjectId)
+    if (err.name === 'CastError') {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: `Invalid ${err.path}: ${err.value}`
+        });
+    }
+
+    // Default error
+    res.status(STATUS_CODES.INTERNAL_SERVER_ERROR).json({
+        success: false,
+        message: MESSAGES.INTERNAL_ERROR,
+        process: "MenuItem Operation",
+        error: process.env.NODE_ENV === "development" ? err.message : undefined
+    });
+};
+
+// Apply middleware to routes
+exports.getAllItems = [requireAuth, exports.getAllItems];
+exports.createItem = [requireAuth, exports.createItem];
+exports.updateItem = [requireAuth, exports.updateItem];
+exports.deleteItem = [requireAuth, exports.deleteItem];
+exports.getItemById = [requireAuth, exports.getItemById];
+exports.errorHandler = errorHandler;

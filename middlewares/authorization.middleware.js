@@ -1,5 +1,7 @@
 // Authorization middleware (Customer, Restaurant, Admin)
 // Constants
+const {getMenuByUserId} = require('../utils/Helper/dataAccess')
+
 const MESSAGES = {
     INTERNAL_ERROR: 'Internal server error',
     UNAUTHORIZED: 'You have to login first',
@@ -44,4 +46,14 @@ exports.verifySubMenuOwner = async (req, res, next) => {
     }
   }
   next();
+}
+
+isSubMenuOwner = async(user, subMenuId) => {
+  // Fetch the restaurant's single menu
+  const menu = await getMenuByUserId(user._id);
+  if (!menu) return false;
+
+  // Check if this subMenuId exists in the menu
+  const ownsSubMenu = menu.subMenus.some(id => id.toString() === subMenuId.toString());
+  return ownsSubMenu;
 }

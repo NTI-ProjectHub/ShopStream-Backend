@@ -30,7 +30,7 @@ exports.verifyToken = function (token, type) {
 
 function generateToken(user, secret, expiresIn) {
   return jwt.sign(
-    { id: user.id, role: user.role },
+    { id: user.id, role: user.role , restaurantId: user.restaurantId || null },
     secret,
     {expiresIn}
 )};

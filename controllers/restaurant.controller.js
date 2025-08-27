@@ -1,120 +1,199 @@
 const Restaurant = require('../models/restaurant/restaurant.model');
 const RestaurantRequest = require('../models/restaurant/restaurant_Request.model');
 const Menu = require('../models/menu/menu.model');
+const {asyncWrapper} = require('../middlewares/asyncWrapper.middleware');
 const dataAccessHelper = require('../utils/Helper/dataAccess');
-const {pagination} = require('../utils/pagination');
+const { pagination } = require('../utils/pagination');
+const {restaurantFilter} = require('../utils/filter')
+const { validationResult } = require('express-validator');
+const MESSAGES = require("../constants/messages");
+const STATUS_CODES = require("../constants/status_Codes");
 
-const MESSAGES = {
-    RESTAURANT_NOT_FOUND: "Restaurant not found",
-    RESTAURANT_REQUEST_NOT_FOUND: "Restaurant request not found",
-    RESTAURANT_REQUEST_ALREADY_EXISTS: "Restaurant request already exists",
-    RESTAURANT_ALREADY_EXISTS: "Restaurant already exists",
-    RESTAURANT_ALREADY_OPEN: "Restaurant already open",
-    RESTAURANT_ALREADY_CLOSED: "Restaurant already closed",
-    RESTAURANT_ALREADY_DELETED: "Restaurant already deleted",
-}
-
-exports.getAllRestaurants = async (req, res) => {
-    try {
-        if (!req.user) {
-            return res.status(401).json({ message: "You have to login first" });
-        }
-
-        const { total, page, limit, data } = await pagination(Restaurant, req);
-
-        res.status(200).json({
-            message: "Restaurants found",
-            result: total,
-            meta: { page, limit, count: data.length },
-            data
-        });
-    } catch (error) {
-        res.status(500).json({
-            message: "Internal server error",
-            process: "Restaurant Retrieval",
-            error: process.env.NODE_ENV === "development" ? error.message : undefined
+// Auth middleware check
+const requireAuth = (req, res, next) => {
+    if (!req.user) {
+        return res.status(STATUS_CODES.UNAUTHORIZED).json({ 
+            success: false,
+            message: MESSAGES.UNAUTHORIZED 
         });
     }
+    next();
 };
 
-exports.getRestaurantById = async (req, res) => {
-    try {
-        if (!req.user) {
-            return res.status(401).json({ message: "You have to login first" });
+exports.getAllRestaurants = asyncWrapper(async (req, res) => {
+    const filter = await restaurantFilter(Restaurant, req);
+    const { total, page, limit, totalPages , data } = await pagination(Restaurant, req  , filter);
+
+    res.status(STATUS_CODES.OK).json({
+        success: true,
+        message: MESSAGES.RESTAURANTS_RETRIEVED_SUCCESSFULLY,
+        result: total,
+        meta: { 
+            page, limit,
+            totalPages,
+            count: data.length
+        },
+        data
+    });
+});
+
+exports.getRestaurantById = asyncWrapper(async (req, res) => {
+    const { id } = req.params;
+
+    const restaurant = await dataAccessHelper.getRestaurantById(id);
+    if (!restaurant) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({ 
+            success: false,
+            message: MESSAGES.RESTAURANT_NOT_FOUND 
+        });
+    }
+
+    const menu = await dataAccessHelper.getMenuByRestaurantId(id);
+    const subMenus = menu ? await dataAccessHelper.getSubMenusByMenuId(menu._id) : [];
+    res.status(STATUS_CODES.OK).json({
+        success: true,
+        message: MESSAGES.RESTAURANT_RETRIEVED_SUCCESSFULLY,
+        data: {
+            restaurant,
+            menu: menu || null,
+            subMenus
         }
+    });
+});
 
-        const restaurant = await dataAccessHelper.getRestaurantById(req.params.id);
-        if (!restaurant) {
-            return res.status(404).json({ message: "Restaurant not found" });
-        }
+exports.getRestaurantByUsername = asyncWrapper(async (req, res) => {
+    const { restaurantUsername } = req.params;
 
-        const menu = await dataAccessHelper.getMenuByRestaurantId(req.params.id);
-        const subMenus = menu ? await dataAccessHelper.getSubMenusByMenuId(menu._id) : [];
+    const restaurant = await Restaurant.findOne({ username: restaurantUsername });
+    if (!restaurant) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({ 
+            success: false,
+            message: MESSAGES.RESTAURANT_NOT_FOUND 
+        });
+    }
 
-        res.status(200).json({
-            message: "Restaurant found",
-            result: 1,
+    const menu = await Menu.findOne({ restaurantId: restaurant._id });
+    if (!menu) {
+        return res.status(STATUS_CODES.OK).json({
+            success: true,
+            message: MESSAGES.RESTAURANT_FOUND_NO_MENU,
             data: {
                 restaurant,
-                menu: menu || null,
-                subMenus
+                menu: null,
+                subMenus: []
             }
         });
-    } catch (error) {
-        res.status(500).json({
-            message: "Internal server error",
-            process: "Restaurant Retrieval",
-            error: process.env.NODE_ENV === "development" ? error.message : undefined
+    }
+
+    const subMenus = await dataAccessHelper.getSubMenusByMenuId(menu._id);
+
+    res.status(STATUS_CODES.OK).json({
+        success: true,
+        message: MESSAGES.RESTAURANT_RETRIEVED_SUCCESSFULLY,
+        meta: {
+            restaurantId: restaurant._id,
+            menuId: menu._id,
+            counts: {
+                restaurant: 1,
+                menu: 1,
+                subMenus: subMenus.length,
+            }
+        },
+        data: {
+            restaurant,
+            menu,
+            subMenus
+        }
+    });
+});
+
+exports.createRestaurantRequest = asyncWrapper(async (req, res) => {
+    // Handle validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.VALIDATION_ERROR,
+            errors: errors.array()
         });
     }
-};
 
-exports.createRestaurantRequest = async (req, res) => {
+    const { name, username, description, address, phone } = req.body;
+
+    // Manual validation for required fields
+    if (!name || !username || !description || !address || !phone) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({ 
+            success: false,
+            message: MESSAGES.REQUIRED_FIELDS,
+            details: "Name, username, description, address, and phone are required"
+        });
+    }
+
+    // Check if restaurant already exists for this user or username is taken
+    const existingRestaurant = await Restaurant.findOne({
+        $or: [
+            { userId: req.user._id },
+            { username: username }
+        ]
+    });
+
+    if (existingRestaurant) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({ 
+            success: false,
+            message: MESSAGES.RESTAURANT_ALREADY_EXISTS,
+            details: existingRestaurant.userId.equals(req.user._id) 
+                ? "You already have a restaurant" 
+                : "Username is already taken"
+        });
+    }
+
+    // Check if there's already a pending request
+    const existingRequest = await RestaurantRequest.findOne({
+        userId: req.user._id,
+        type: "create",
+        status: "pending"
+    });
+
+    if (existingRequest) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.RESTAURANT_REQUEST_ALREADY_EXISTS
+        });
+    }
+
+    // Use transaction for data consistency
+    const session = await Restaurant.startSession();
+    session.startTransaction();
+
     try {
-        if (!req.user) {
-            return res.status(401).json({ message: "You have to login first" });
-        }
-
-        const { name, description, address, phone, coverImage } = req.body;
-
-        // === Validation ===
-        if (!name || !address || !phone) {
-            return res.status(400).json({ message: "Name, address, and phone are required" });
-        }
-
-        // ===
-        const existingRestaurant = await Restaurant.findOne({userId: req.user._id});
-        if (existingRestaurant) {
-            return res.status(400).json({ message: "Restaurant already exists" });
-        }
-
-        // === Create Restaurant ===
+        // Create Restaurant
         const restaurant = new Restaurant({
-            name,
-            description,
-            address,
-            phone,
-            coverImage,
+            name: name.trim(),
+            username: username.toLowerCase().trim(),
+            description: description.trim(),
+            address: address.trim(),
+            phone: phone.trim(),
             userId: req.user._id,
             status: "pending"
         });
 
-        await restaurant.save();
+        await restaurant.save({ session });
 
-        // === Create Restaurant Request ===
+        // Create Restaurant Request
         const restaurantRequest = new RestaurantRequest({
             userId: req.user._id,
             restaurantId: restaurant._id,
             type: "create",
-            status: restaurant.status
+            status: "pending"
         });
 
-        await restaurantRequest.save();
+        await restaurantRequest.save({ session });
 
-        // === Response ===
-        res.status(201).json({
-            message: "Create request saved successfully",
-            result: 1,
+        await session.commitTransaction();
+
+        res.status(STATUS_CODES.CREATED).json({
+            success: true,
+            message: MESSAGES.RESTAURANT_REQUEST_CREATED,
             meta: {
                 userId: req.user._id,
                 restaurantId: restaurant._id,
@@ -128,53 +207,145 @@ exports.createRestaurantRequest = async (req, res) => {
         });
 
     } catch (error) {
-        res.status(500).json({
-            message: "Internal server error",
-            process: "Restaurant Creation",
-            error: process.env.NODE_ENV === "development" ? error.message : undefined
+        await session.abortTransaction();
+        throw error;
+    } finally {
+        session.endSession();
+    }
+});
+
+exports.removeRestaurantRequest = asyncWrapper(async (req, res) => {
+    const { restaurantId } = req.params;
+
+    const restaurant = await dataAccessHelper.getRestaurantById(restaurantId);
+    if (!restaurant) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({ 
+            success: false,
+            message: MESSAGES.RESTAURANT_NOT_FOUND 
         });
     }
-};
 
-exports.removeRestaurantRequest = async (req, res) => {
-    try {
-        if (!req.user) {
-            return res.status(401).json({ message: "You have to login first" });
-        }
+    // Check if user owns this restaurant
+    if (!restaurant.userId.equals(req.user._id)) {
+        return res.status(STATUS_CODES.FORBIDDEN).json({
+            success: false,
+            message: MESSAGES.RESTAURANT_REQUEST_DELETION_ERROR
+        });
+    }
 
-        const restaurant = await dataAccessHelper.getRestaurantById(req.params.restaurantId);
-        if (!restaurant) {
-            return res.status(404).json({ message: "Restaurant not found" });
-        }
+    // Check if restaurant is already deleted or has pending delete request
+    if (restaurant.status === 'deleted') {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.RESTAURANT_ALREADY_DELETED
+        });
+    }
 
-        const existingRequest = await RestaurantRequest.findOne({restaurantId: restaurant._id, type: "delete"});
-        if (existingRequest) {
-            return res.status(400).json({ message: "Delete request already exists" });
-        }
+    const existingRequest = await RestaurantRequest.findOne({
+        restaurantId: restaurant._id,
+        type: "delete",
+        status: "pending"
+    });
 
-        const restaurantRequest = new RestaurantRequest({
+    if (existingRequest) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({ 
+            success: false,
+            message: MESSAGES.RESTAURANT_REQUEST_ALREADY_EXISTS
+        });
+    }
+
+    const restaurantRequest = new RestaurantRequest({
+        userId: req.user._id,
+        restaurantId: restaurant._id,
+        type: "delete",
+        status: "pending"
+    });
+
+    await restaurantRequest.save();
+
+    res.status(STATUS_CODES.CREATED).json({
+        success: true,
+        message: MESSAGES.RESTAURANT_REQUEST_CREATED,
+        meta: {
             userId: req.user._id,
             restaurantId: restaurant._id,
-            type: "delete",
-            status: "pending"
-        });
+            restaurantRequestId: restaurantRequest._id
+        },
+        data: {
+            restaurantRequest
+        }
+    });
+});
 
-        res.status(200).json({
-            message: "Restaurant request removed",
-            result: 1,
-            meta: {
-                userId: req.user._id,
-                restaurantRequestId: restaurantRequest._id
-            },
-            data: {
-                restaurantRequest
-            }
-        });
-    } catch (error) {
-        res.status(500).json({
-            message: "Internal server error",
-            process: "Restaurant Request Removal",
-            error: process.env.NODE_ENV === "development" ? error.message : undefined
+// Additional helper method for updating restaurant status
+exports.updateRestaurantStatus = asyncWrapper(async (req, res) => {
+    const { restaurantId } = req.params;
+    const { status } = req.body;
+
+    const validStatuses = ['pending', 'approved', 'rejected', 'deleted'];
+    if (!validStatuses.includes(status)) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
         });
     }
+
+    const restaurant = await Restaurant.findById(restaurantId);
+    if (!restaurant) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({
+            success: false,
+            message: MESSAGES.RESTAURANT_NOT_FOUND
+        });
+    }
+
+    restaurant.status = status;
+    await restaurant.save();
+
+    res.status(STATUS_CODES.OK).json({
+        success: true,
+        message: `Restaurant status updated to ${status}`,
+        data: {
+            restaurant
+        }
+    });
+});
+
+// Error handling middleware (add this to your app.js)
+exports.errorHandler = (err, req, res, next) => {
+    console.error('Error:', err);
+
+    // Mongoose validation error
+    if (err.name === 'ValidationError') {
+        const errors = Object.values(err.errors).map(e => e.message);
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.VALIDATION_ERROR,
+            errors
+        });
+    }
+
+    // Mongoose duplicate key error
+    if (err.code === 11000) {
+        const field = Object.keys(err.keyValue)[0];
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: `${field} already exists`
+        });
+    }
+
+    // Default error
+    res.status(500).json({
+        success: false,
+        message: MESSAGES.INTERNAL_ERROR,
+        process: "Restaurant Operation",
+        error: process.env.NODE_ENV === "development" ? err.message : undefined
+    });
 };
+
+// Apply auth middleware to all routes that need it
+exports.getAllRestaurants = [requireAuth, exports.getAllRestaurants];
+exports.getRestaurantById = [requireAuth, exports.getRestaurantById];
+exports.getRestaurantByUsername = [requireAuth, exports.getRestaurantByUsername];
+exports.createRestaurantRequest = [requireAuth, exports.createRestaurantRequest];
+exports.removeRestaurantRequest = [requireAuth, exports.removeRestaurantRequest];
+exports.updateRestaurantStatus = [requireAuth, exports.updateRestaurantStatus];

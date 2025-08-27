@@ -81,17 +81,40 @@ const foodCategories = [
   "Other",
 ];
 
+const variationSchema = new mongoose.Schema({
+  isAvailable: {
+    type: Boolean,
+    default: true,
+  },
+  size: {
+    type: String,
+    enum: ["Small", "Medium", "Large"],
+    default: "Medium",
+  },
+  price: {
+    type: Number,
+    required: true,
+    min: 0,
+    validate: {
+      validator: (v) =>
+        Number.isFinite(v) && /^\d+(\.\d{1,2})?$/.test(v.toString()),
+      message: (props) =>
+        `${props.value} is not a valid price format (max 2 decimals)`,
+    },
+  },
+});
+
 const menuItemSchema = new mongoose.Schema(
   {
-    menuId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Menu",
-      required: true,
+    parentType: {
+      type: String,
+      enum: ["Menu", "Submenu"],
+      required: true, // This should be required
     },
-    subMenuId: {
+    parentId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "SubMenu",
-      default: null,
+      refPath: "parentType",
+      required: true,
     },
     name: {
       type: String,
@@ -112,17 +135,22 @@ const menuItemSchema = new mongoose.Schema(
       required: true,
       enum: foodCategories,
       default: ["Other"],
-    },
-    price: {
-      type: Number,
-      required: true,
-      min: 0,
       validate: {
-        validator: (v) =>
-          Number.isFinite(v) && /^\d+(\.\d{1,2})?$/.test(v.toString()),
-        message: (props) =>
-          `${props.value} is not a valid price format (max 2 decimals)`,
-      },
+        validator: function(v) {
+          return v && v.length > 0; // Ensure at least one category
+        },
+        message: 'At least one category is required'
+      }
+    },
+    variations: {
+      type: [variationSchema],
+      required: true,
+      validate: {
+        validator: function(v) {
+          return v && v.length > 0; // Ensure at least one variation
+        },
+        message: 'At least one variation is required'
+      }
     },
     image: {
       type: String,
@@ -133,18 +161,15 @@ const menuItemSchema = new mongoose.Schema(
         message: (props) => `${props.value} is not a valid image URL`,
       },
     },
-
-    isAvailable: {
-      type: Boolean,
-      default: true,
-    },
   },
   { timestamps: true }
 );
 
-menuItemSchema.index({ menuId: 1 });
-menuItemSchema.index({ subMenuId: 1 });
-menuItemSchema.index({ category: 1 });
+// Corrected indexes - these should match your actual schema fields
+menuItemSchema.index({ parentId: 1, parentType: 1 }); // Compound index for efficient queries
+menuItemSchema.index({ category: 1 }); // For category filtering
+menuItemSchema.index({ name: 1, parentId: 1 }, { unique: true }); // Prevent duplicate names within same parent
+menuItemSchema.index({ createdAt: -1 }); // For sorting by creation date
 
 const MenuItem = mongoose.model("MenuItem", menuItemSchema);
 

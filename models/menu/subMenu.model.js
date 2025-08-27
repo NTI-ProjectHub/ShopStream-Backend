@@ -1,4 +1,3 @@
-const e = require('express');
 const mongoose = require('mongoose');
 
 const subMenuSchema = new mongoose.Schema({
@@ -37,12 +36,6 @@ const subMenuSchema = new mongoose.Schema({
         type: Boolean,
         default: true
     },
-    items: [
-        {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'MenuItem'
-        }
-    ]
 });
 
 const SubMenu = mongoose.model('SubMenu', subMenuSchema);

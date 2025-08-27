@@ -1,316 +1,447 @@
-const { getMenuById, getMenuByUserId } = require('../utils/Helper/dataAccess');
-const SubMenu = require('../models/menu/subMenu.model');
-const MenuItem = require('../models/menu/menuItem.model');
+const { getMenuById } = require("../utils/Helper/dataAccess");
+const SubMenu = require("../models/menu/subMenu.model");
+const MenuItem = require("../models/menu/menuItem.model");
+const Menu = require("../models/menu/menu.model");
+const Restaurant = require("../models/restaurant.model");
+const { validationResult } = require('express-validator');
+const cloud = require("../middlewares/cloud");
+const MESSAGES = require("../constants/messages");
+const STATUS_CODES = require("../constants/status_Codes");
+const {asyncWrapper} = require("../middlewares/asyncWrapper.middleware");
 
-// Constants
-const HTTP_STATUS = {
-  OK: 200,
-  CREATED: 201,
-  BAD_REQUEST: 400,
-  UNAUTHORIZED: 401,
-  FORBIDDEN: 403,
-  NOT_FOUND: 404,
-  INTERNAL_SERVER_ERROR: 500,
-  UNAUTHORIZED: 401,
-  FORBIDDEN: 403,
-  NOT_FOUND: 404,
-  CONFLICT: 409,
-  UNPROCESSABLE_ENTITY: 422,
-  TOO_MANY_REQUESTS: 429,
-  GATEWAY_TIMEOUT: 504,
+// Auth middleware check
+const requireAuth = (req, res, next) => {
+    if (!req.user) {
+        return res.status(STATUS_CODES.UNAUTHORIZED).json({ 
+            success: false,
+            message: MESSAGES.AUTHENTICATION_ERROR 
+        });
+    }
+    next();
 };
 
-const MESSAGES = {
-  ALL_FIELDS_REQUIRED: "All fields are required!",
-  SUBMENU_FOUND: "Sub Menu fetched successfully",
-  SUBMENU_CREATED: "Sub Menu created successfully",
-  SUBMENU_UPDATED: "Sub Menu updated successfully",
-  SUBMENU_DELETED: "Sub Menu deleted successfully",
-  SUBMENU_NOT_FOUND: "Sub Menu not found!",
-  MENU_NOT_FOUND: "Parent Menu not found!",
-  INTERNAL_ERROR: "Internal Server Error",
-  FORBIDDEN: "You are not authorized to perform this action"
-};
+// Authorization helper function
+async function checkMenuOwnership(userId, menuId) {
+    const menu = await Menu.findById(menuId);
+    if (!menu) return false;
+    
+    const restaurant = await Restaurant.findById(menu.restaurantId);
+    if (!restaurant) return false;
+    
+    return restaurant.userId.toString() === userId.toString();
+}
 
-exports.getSubMenu = async(req, res) => {
-  try {
-    const { menuId , subMenuId } = req.params;
+exports.getSubMenu = asyncWrapper(async (req, res) => {
+    const { menuId, subMenuId } = req.params;
+
+    // Verify menu exists
     const menu = await getMenuById(menuId);
     if (!menu) {
-      return res.status(HTTP_STATUS.NOT_FOUND).json({
-        message: MESSAGES.MENU_NOT_FOUND,
-        process: "getting Sub Menu"
-      });
-    }
-
-    if(!menu.subMenus.find(subMenu => subMenu._id.toString() === subMenuId)) {
-      return res
-      .status(HTTP_STATUS.NOT_FOUND)
-      .json({
-        message: MESSAGES.SUBMENU_NOT_FOUND,
-        process: "getting Sub Menu"
-      });
-    };
-
-    const subMenu = await SubMenu.findById(subMenuId).populate("items");
-    if (!subMenu) {
-      return res.status(HTTP_STATUS.NOT_FOUND).json({
-        message: MESSAGES.SUBMENU_NOT_FOUND,
-        process: "getting Sub Menu"
-      });
-    }
-    const subMenuItems = subMenu.items.map(item => ({
-      ...item._doc,
-    }));
-
-    return res.status(HTTP_STATUS.OK).json({
-      message: MESSAGES.SUBMENU_FOUND,
-      status: "success",
-      data: {
-        subMenu: {
-          subMenu,
-          items: subMenuItems
-        }
-      }
-    });
-  } catch (error) {
-    console.error("Error getting sub menu:", { error: error.message, params: req.params });
-    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
-      message: MESSAGES.INTERNAL_ERROR,
-      process: "getting Sub Menu",
-      error: error.message
-    });
-  }
-};
-
-exports.createSubMenu = async (req, res) => {
-  try {
-    const isRestaurant = req.user.role === 'restaurant';
-    if(isRestaurant) {
-      const owns = await isSubMenuOwner(req.user , req.params.menuId);
-      if(!owns) {
-        return res.status(HTTP_STATUS.FORBIDDEN).json({
-          message: MESSAGES.FORBIDDEN,
-          process: "creating Sub Menu"
+        return res.status(STATUS_CODES.NOT_FOUND).json({
+            success: false,
+            message: MESSAGES.MENU_NOT_FOUND,
         });
-      }
     }
 
-    const { name, description, category, Items } = req.body;
+    // Find submenu
+    const subMenu = await SubMenu.findOne({ _id: subMenuId, menuId: menuId });
+    if (!subMenu) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({
+            success: false,
+            message: MESSAGES.SUBMENU_NOT_FOUND,
+        });
+    }
+
+    // Get menu items for this submenu
+    const menuItems = await MenuItem.find({ 
+        parentId: subMenuId, 
+        parentType: 'Submenu' 
+    }).sort({ createdAt: -1 });
+
+    return res.status(STATUS_CODES.OK).json({
+        success: true,
+        message: MESSAGES.SUBMENU_FOUND,
+        meta: {
+            menuId,
+            subMenuId,
+            itemCount: menuItems.length
+        },
+        data: {
+            subMenu,
+            menuItems
+        },
+    });
+});
+
+exports.createSubMenu = asyncWrapper(async (req, res) => {
+    // Handle validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.VALIDATION_ERROR,
+            errors: errors.array()
+        });
+    }
+
+    const { name, description, category } = req.body;
     const { menuId } = req.params;
 
     // Validate required fields
-    if (!name || !description || !category || !menuId) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        message: MESSAGES.ALL_FIELDS_REQUIRED,
-        process: "creating Sub Menu"
-      });
+    if (!name?.trim() || !description?.trim() || !category?.trim()) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.ALL_FIELDS_REQUIRED,
+        });
     }
 
-    // Validate Items
-    const menuItems = Array.isArray(Items) ? Items.map(i => i._id) : [];
-    const image = req.image || undefined;
+    // Check authorization
+    const hasPermission = await checkMenuOwnership(req.user._id, menuId);
+    if (!hasPermission) {
+        return res.status(STATUS_CODES.FORBIDDEN).json({
+            success: false,
+            message: MESSAGES.FORBIDDEN,
+        });
+    }
 
     // Ensure menu exists
     const menu = await getMenuById(menuId);
     if (!menu) {
-      return res.status(HTTP_STATUS.NOT_FOUND).json({
-        message: MESSAGES.MENU_NOT_FOUND,
-        process: "creating Sub Menu"
-      });
+        return res.status(STATUS_CODES.NOT_FOUND).json({
+            success: false,
+            message: MESSAGES.MENU_NOT_FOUND,
+        });
+    }
+
+    // Check if submenu name already exists in this menu
+    const existingSubMenu = await SubMenu.findOne({ 
+        menuId, 
+        name: name.trim() 
+    });
+    if (existingSubMenu) {
+        return res.status(STATUS_CODES.CONFLICT).json({
+            success: false,
+            message: MESSAGES.SUBMENU_NAME_EXISTS,
+        });
     }
 
     // Create SubMenu
     const subMenu = new SubMenu({
-      menuId,
-      name,
-      description,
-      image,
-      category,
-      items: menuItems
-    });
-
-    await subMenu.save();
-
-    // Update parent Menu
-    menu.subMenus.push(subMenu._id);
-    await menu.save();
-
-    return res
-    .status(HTTP_STATUS.CREATED)
-    .json({
-      message: MESSAGES.SUBMENU_CREATED,
-      status: "success",
-      data: {
-        subMenu,
-        items: menuItems
-      }
-    });
-  } catch (error) {
-    console.error("Error creating sub menu:", { error: error.message, body: req.body, params: req.params });
-
-    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
-      message: MESSAGES.INTERNAL_ERROR,
-      process: "creating Sub Menu",
-      error: error.message
-    });
-  }
-};
-
-exports.updateSubMenu = async (req, res) => {
-  try {
-    const isRestaurant = req.user.role === 'restaurant';
-    if(isRestaurant) {
-      const owns = await isSubMenuOwner(req.user , req.params.menuId);
-      if(!owns) {
-        return res.status(HTTP_STATUS.FORBIDDEN).json({
-          message: MESSAGES.FORBIDDEN,
-          process: "creating Sub Menu"
-        });
-      }
-    }
-
-    const { name, description, category, Items } = req.body;
-    const { menuId, subMenuId } = req.params;
-    const image = req.image || undefined;
-
-    // Validate required fields
-    if (!name || !description || !category || !menuId || !subMenuId) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        message: MESSAGES.ALL_FIELDS_REQUIRED,
-        process: "editing Sub Menu"
-      });
-    }
-
-    // Validate Items
-    const menuItems = Array.isArray(Items) ? Items.map(i => i._id) : [];
-
-    // Ensure menu exists
-    const menu = await getMenuById(menuId);
-    if (!menu) {
-      return res.status(HTTP_STATUS.NOT_FOUND).json({
-        message: MESSAGES.MENU_NOT_FOUND,
-        process: "editing Sub Menu"
-      });
-    }
-
-    // Find SubMenu
-    const subMenu = await SubMenu.findById(subMenuId);
-    if (!subMenu) {
-      return res.status(HTTP_STATUS.NOT_FOUND).json({
-        message: MESSAGES.SUBMENU_NOT_FOUND,
-        process: "editing Sub Menu"
-      });
-    }
-
-    // Update SubMenu
-    subMenu.name = name;
-    subMenu.description = description;
-    subMenu.image = image || subMenu.image;
-    subMenu.category = category;
-    subMenu.items = menuItems;
-    await subMenu.save();
-
-    return res.status(HTTP_STATUS.OK).json({
-      message: MESSAGES.SUBMENU_UPDATED,
-      status: "success",
-      data: {
-        subMenu,
-        items: menuItems
-      }
-    });
-
-  } catch(error) {
-    console.error("Error editing sub menu:", { error: error.message, body: req.body, params: req.params });
-    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
-      message: MESSAGES.INTERNAL_ERROR,
-      process: "editing Sub Menu",
-      error: error.message
-    });
-  }
-};
-
-exports.deleteSubMenu = async (req, res) => {
-  try {
-    const isRestaurant = req.user.role === 'restaurant';
-    if(isRestaurant) {
-      const owns = await isSubMenuOwner(req.user , req.params.menuId);
-      if(!owns) {
-        return res.status(HTTP_STATUS.FORBIDDEN).json({
-          message: MESSAGES.FORBIDDEN,
-          process: "creating Sub Menu"
-        });
-      }
-    }
-    const { all } = req.body;
-    const { menuId, subMenuId } = req.params;
-
-    // Validate required fields
-    if (!menuId || !subMenuId) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json({
-        message: MESSAGES.ALL_FIELDS_REQUIRED,
-        process: "deleting Sub Menu"
-      });
-    }
-
-    // Ensure menu exists
-    const menu = await getMenuById(menuId);
-    if (!menu) {
-      return res.status(HTTP_STATUS.NOT_FOUND).json({
-        message: MESSAGES.MENU_NOT_FOUND,
-        process: "deleting Sub Menu"
-      });
-    }
-
-    // Find SubMenu
-    const subMenu = await SubMenu.findById(subMenuId);
-    if (!subMenu) {
-      return res.status(HTTP_STATUS.NOT_FOUND).json({
-        message: MESSAGES.SUBMENU_NOT_FOUND,
-        process: "deleting Sub Menu"
-      });
-
-    }
-
-    // Remove SubMenu reference from Menu
-    menu.subMenus = menu.subMenus.filter(id => id.toString() !== subMenuId);
-    if(all) {
-      // Delete all items
-      await MenuItem.deleteMany({ subMenuId });
-    } else {
-      subMenu.items.forEach(item => {
-        menu.items.push(item._id);
-      });
-    }
-    await menu.save();
-
-    // Delete SubMenu
-    await SubMenu.findByIdAndDelete(subMenuId);
-
-    return res.status(HTTP_STATUS.OK).json({
-      message: MESSAGES.SUBMENU_DELETED,
-      status: "success",
-      meta: {
         menuId,
-        subMenuId
-      }
+        name: name.trim(),
+        description: description.trim(),
+        category: category.trim(),
+        image: req.image || null,
     });
-  } catch (error) {
-    console.error("Error deleting sub menu:", { error: error.message, params: req.params });
-    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
-      message: MESSAGES.INTERNAL_ERROR,
-      process: "deleting Sub Menu",
-      error: error.message
+
+    await subMenu.save();
+
+    return res.status(STATUS_CODES.CREATED).json({
+        success: true,
+        message: MESSAGES.SUBMENU_CREATED,
+        meta: {
+            menuId,
+            subMenuId: subMenu._id
+        },
+        data: {
+            subMenu
+        },
     });
-  }
-}
+});
 
-async function isSubMenuOwner(restaurant, subMenuId) {
-  // Fetch the restaurant's single menu
-  const menu = await getMenuByUserId(restaurant._id);
-  if (!menu) return false;
+exports.updateSubMenu = asyncWrapper(async (req, res) => {
+    // Handle validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.VALIDATION_ERROR,
+            errors: errors.array()
+        });
+    }
 
-  // Check if this subMenuId exists in the menu
-  const ownsSubMenu = menu.subMenus.some(id => id.toString() === subMenuId.toString());
-  return ownsSubMenu;
-}
+    const { name, description, category, itemIds } = req.body;
+    const { menuId, subMenuId } = req.params;
+
+    // Check authorization
+    const hasPermission = await checkMenuOwnership(req.user._id, menuId);
+    if (!hasPermission) {
+        return res.status(STATUS_CODES.FORBIDDEN).json({
+            success: false,
+            message: MESSAGES.FORBIDDEN,
+        });
+    }
+
+    // Find SubMenu
+    const subMenu = await SubMenu.findOne({ _id: subMenuId, menuId });
+    if (!subMenu) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({
+            success: false,
+            message: MESSAGES.SUBMENU_NOT_FOUND,
+        });
+    }
+
+    // Check for name conflicts (excluding current submenu)
+    if (name && name.trim() !== subMenu.name) {
+        const existingSubMenu = await SubMenu.findOne({ 
+            menuId, 
+            name: name.trim(),
+            _id: { $ne: subMenuId }
+        });
+        if (existingSubMenu) {
+            return res.status(STATUS_CODES.CONFLICT).json({
+                success: false,
+                message: MESSAGES.SUBMENU_NAME_EXISTS,
+            });
+        }
+    }
+
+    // Use transaction for consistency
+    const session = await SubMenu.startSession();
+    session.startTransaction();
+
+    try {
+        // Handle image update
+        if (subMenu.image && req.image) {
+            try {
+                await cloud.deleteCloud(subMenu.image);
+            } catch (error) {
+                console.warn('Failed to delete old image:', error.message);
+            }
+        }
+
+        // Update SubMenu fields
+        if (name?.trim()) subMenu.name = name.trim();
+        if (description?.trim()) subMenu.description = description.trim();
+        if (category?.trim()) subMenu.category = category.trim();
+        if (req.image) subMenu.image = req.image;
+
+        await subMenu.save({ session });
+
+        let updatedItemsCount = 0;
+        // Update MenuItems if itemIds provided
+        if (itemIds && Array.isArray(itemIds) && itemIds.length > 0) {
+            const result = await MenuItem.updateMany(
+                { _id: { $in: itemIds } },
+                {
+                    $set: {
+                        parentType: "Submenu",
+                        parentId: subMenuId,
+                    },
+                },
+                { session }
+            );
+            updatedItemsCount = result.modifiedCount;
+        }
+
+        await session.commitTransaction();
+
+        return res.status(STATUS_CODES.OK).json({
+            success: true,
+            message: MESSAGES.SUBMENU_UPDATED,
+            meta: {
+                menuId,
+                subMenuId,
+                updatedItemsCount
+            },
+            data: {
+                subMenu
+            },
+        });
+
+    } catch (error) {
+        await session.abortTransaction();
+        throw error;
+    } finally {
+        session.endSession();
+    }
+});
+
+exports.deleteSubMenu = asyncWrapper(async (req, res) => {
+    const { deleteItems = false } = req.body;
+    const { menuId, subMenuId } = req.params;
+
+    // Check authorization
+    const hasPermission = await checkMenuOwnership(req.user._id, menuId);
+    if (!hasPermission) {
+        return res.status(STATUS_CODES.FORBIDDEN).json({
+            success: false,
+            message: MESSAGES.FORBIDDEN,
+        });
+    }
+
+    // Find SubMenu
+    const subMenu = await SubMenu.findOne({ _id: subMenuId, menuId });
+    if (!subMenu) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({
+            success: false,
+            message: MESSAGES.SUBMENU_NOT_FOUND,
+        });
+    }
+
+    // Use transaction for consistency
+    const session = await SubMenu.startSession();
+    session.startTransaction();
+
+    try {
+        // Get existing menu items
+        const subMenuItems = await MenuItem.find({ 
+            parentId: subMenuId, 
+            parentType: 'Submenu' 
+        });
+
+        let itemsAction = "none";
+        let affectedItemsCount = subMenuItems.length;
+
+        if (deleteItems) {
+            // Delete all menu items
+            await MenuItem.deleteMany({ 
+                parentId: subMenuId, 
+                parentType: 'Submenu' 
+            }, { session });
+            itemsAction = "deleted";
+        } else if (subMenuItems.length > 0) {
+            // Move items back to parent menu
+            await MenuItem.updateMany(
+                { parentId: subMenuId, parentType: 'Submenu' },
+                {
+                    $set: {
+                        parentType: "Menu",
+                        parentId: menuId,
+                    },
+                },
+                { session }
+            );
+            itemsAction = "moved_to_menu";
+        }
+
+        // Delete image from cloud storage
+        if (subMenu.image) {
+            try {
+                await cloud.deleteCloud(subMenu.image);
+            } catch (error) {
+                console.warn('Failed to delete image from cloud:', error.message);
+            }
+        }
+
+        // Delete SubMenu
+        await SubMenu.findByIdAndDelete(subMenuId, { session });
+
+        await session.commitTransaction();
+
+        return res.status(STATUS_CODES.OK).json({
+            success: true,
+            message: MESSAGES.SUBMENU_DELETED,
+            meta: {
+                menuId,
+                subMenuId,
+                deletedSubMenu: subMenu.name,
+                affectedItemsCount,
+                itemsAction
+            },
+            data: {
+                deletedSubMenu: {
+                    _id: subMenu._id,
+                    name: subMenu.name,
+                    category: subMenu.category
+                }
+            },
+        });
+
+    } catch (error) {
+        await session.abortTransaction();
+        throw error;
+    } finally {
+        session.endSession();
+    }
+});
+
+// Get all submenus for a menu
+exports.getSubMenusByMenu = asyncWrapper(async (req, res) => {
+    const { menuId } = req.params;
+
+    // Verify menu exists
+    const menu = await getMenuById(menuId);
+    if (!menu) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({
+            success: false,
+            message: MESSAGES.MENU_NOT_FOUND,
+        });
+    }
+
+    const subMenus = await SubMenu.find({ menuId }).sort({ createdAt: -1 });
+
+    // Get item counts for each submenu
+    const subMenusWithCounts = await Promise.all(
+        subMenus.map(async (subMenu) => {
+            const itemCount = await MenuItem.countDocuments({
+                parentId: subMenu._id,
+                parentType: 'Submenu'
+            });
+            return {
+                ...subMenu.toObject(),
+                itemCount
+            };
+        })
+    );
+
+    return res.status(STATUS_CODES.OK).json({
+        success: true,
+        message: `Found ${subMenus.length} submenus`,
+        meta: {
+            menuId,
+            count: subMenus.length
+        },
+        data: {
+            subMenus: subMenusWithCounts
+        }
+    });
+});
+
+// Error handling middleware
+const errorHandler = (err, req, res, next) => {
+    console.error('SubMenu Controller Error:', err);
+
+    // Handle custom errors
+    if (err.status) {
+        return res.status(err.status).json({
+            success: false,
+            message: err.message,
+            process: "SubMenu Operation"
+        });
+    }
+
+    // Mongoose validation error
+    if (err.name === 'ValidationError') {
+        const errors = Object.values(err.errors).map(e => e.message);
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.VALIDATION_ERROR,
+            errors
+        });
+    }
+
+    // Mongoose cast error (invalid ObjectId)
+    if (err.name === 'CastError') {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: `Invalid ${err.path}: ${err.value}`
+        });
+    }
+
+    // Default error
+    res.status(STATUS_CODES.INTERNAL_SERVER_ERROR).json({
+        success: false,
+        message: MESSAGES.INTERNAL_ERROR,
+        process: "SubMenu Operation",
+        error: process.env.NODE_ENV === "development" ? err.message : undefined
+    });
+};
+
+// Apply middleware to routes
+exports.getSubMenu = [requireAuth, exports.getSubMenu];
+exports.createSubMenu = [requireAuth, exports.createSubMenu];
+exports.updateSubMenu = [requireAuth, exports.updateSubMenu];
+exports.deleteSubMenu = [requireAuth, exports.deleteSubMenu];
+exports.getSubMenusByMenu = [requireAuth, exports.getSubMenusByMenu];
+exports.errorHandler = errorHandler;

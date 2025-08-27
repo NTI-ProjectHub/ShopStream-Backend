@@ -1,157 +1,347 @@
-const Menu = require('../models/menu/menu.model');
-const Restaurant = require('../models/restaurant.model');
-const {getMenuById , getMenuItemsByMenuId, getMenuByUserId} = require('../utils/Helper/dataAccess');
-const {checkRestaurantAuthorization} = require('../middlewares/authorization.middleware')
-const cloud = require('../utils/cloud');
-const MenuItem = require('../models/menu/menuItem.model');
-const {pagination} = require('../utils/pagination');
+const Menu = require("../models/menu/menu.model");
+const SubMenu = require("../models/menu/subMenu.model");
+const Restaurant = require("../models/restaurant/restaurant.model");
+const MenuItem = require("../models/menu/menuItem.model");
+const {
+  getMenuById,
+  getMenuByRestaurantId,
+} = require("../utils/Helper/dataAccess");
+const {
+  checkRestaurantAuthorization,
+} = require("../middlewares/authorization.middleware");
+const cloud = require("../middlewares/cloud");
+const { pagination } = require("../utils/pagination");
+const { validationResult } = require('express-validator');
+const MESSAGES = require("../constants/messages");
+const STATUS_CODES = require("../constants/status_Codes");
+const {asyncWrapper} = require("../middlewares/asyncWrapper.middleware");
 
-exports.getRestaurantMenuItems = async (req, res) => {
-    try {
-        if (!req.user) {
-            return res.status(401).json({ message: 'You have to login first' });
-        }
 
-        console.log("User ID from req.user:", req.user._id);
-
-        // ✅ Find menu for this user
-        const menu = await getMenuByUserId(req.user._id);
-        if (!menu) {
-            return res.status(404).json({ message: "Menu not found for this restaurant" });
-        }
-        console.log("Menu ID from user:", menu._id);
-
-        // ✅ Use pagination directly instead of extra query
-        const { total, page, limit, data } = await pagination(MenuItem, req, { menuId: menu._id });
-
-        if (total === 0) {
-            return res.status(404).json({ message: "This menu has no items" });
-        }
-
-        return res.status(200).json({
-            message: 'Menu items found',
-            result: total,
-            meta: { page, limit },
-            data: data
-        });
-
-    } catch (error) {
-        console.error("Menu Retrieval Error:", error);
-        return res.status(500).json({
-            message: 'Internal server error',
-            process: "Menu Retrieval"
+// Auth middleware check
+const requireAuth = (req, res, next) => {
+    if (!req.user) {
+        return res.status(STATUS_CODES.UNAUTHORIZED).json({ 
+            success: false,
+            message: MESSAGES.AUTHENTICATION_ERROR 
         });
     }
+    next();
 };
 
-// restaurant make new menu
-exports.createMenu = async (req, res) => {
-    try {
-        if (!req.user) {
-            return res.status(401).json({ message: 'You Have To login First' });
-        }
+exports.getRestaurantMenu = asyncWrapper(async (req, res) => {
+    const { restaurantId } = req.params;
 
-        const { name, description } = req.body;
-
-        const restaurant = await Restaurant.findById(req.params.restaurantId);
-        if (!restaurant) {
-            return res.status(404).json({ message: 'Restaurant not found' });
-        }
-
-        if (!restaurant.menuId) {
-            return res.status(400).json({ message: "This restaurant already have a menu" });
-        }
-        const menu = new Menu({
-            restaurantId: req.user._id,
-            name,
-            description,
-            image: req.menuImage || null, // store the Cloudinary link
-        });
-        await menu.save();
-
-        restaurant.menuId = menu._id;
-        await restaurant.save();
-
-        return res.status(201).json({
-            message: 'Menu created successfully',
-            result: 1,
-            meta: {},
-            data: menu
-        });
-
-    } catch (error) {
-        console.error("Menu Creation Error:", error);
-        return res.status(500).json({
-            message: 'Internal server error',
-            process: "Menu Creation"
+    // Find menu for this restaurant
+    const menu = await getMenuByRestaurantId(restaurantId);
+    if (!menu) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({ 
+            success: false,
+            message: MESSAGES.NO_MENU 
         });
     }
-};
 
-exports.updateMenu = async (req, res) => {
-    try {
-        if (!req.user) {
-            return res.status(401).json({ message: 'You Have To login First' });
+    let subMenus = [];
+    let menuItemsQuery = { parentId: menu._id, parentType: 'Menu' };
+
+    // Get submenus if they exist
+    const subMenusData = await SubMenu.find({ menuId: menu._id });
+    if (subMenusData.length > 0) {
+        subMenus = subMenusData;
+        // Update query to include both menu items directly under menu and under submenus
+        menuItemsQuery = {
+            $or: [
+                { parentId: menu._id, parentType: 'Menu' },
+                { parentId: { $in: subMenus.map(sm => sm._id) }, parentType: 'Submenu' }
+            ]
+        };
+    }
+
+    // Get paginated menu items
+    const { total, page, limit, data } = await pagination(MenuItem, req, menuItemsQuery);
+
+    const response = {
+        success: true,
+        message: total > 0 ? MESSAGES.MENU_ITEMS_FOUND : MESSAGES.NO_MENU_ITEMS,
+        result: total,
+        meta: { 
+            page, 
+            limit, 
+            totalItems: total,
+            hasSubMenus: subMenus.length > 0
+        },
+        data: {
+            menu,
+            subMenus: subMenus.length > 0 ? subMenus : [],
+            menuItems: data,
         }
-        const menu = await getMenuAndAuthorize(req, req.params.menuId);
-        const { name, description } = req.body;
-        if (menu.image && req.menuImage) {
+    };
+
+    return res.status(STATUS_CODES.OK).json(response);
+});
+
+exports.createMenu = asyncWrapper(async (req, res) => {
+    // Handle validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.VALIDATION_ERROR,
+            errors: errors.array()
+        });
+    }
+
+    const { restaurantId } = req.params;
+    const { name, description } = req.body;
+
+    // Find and verify restaurant
+    const restaurant = await Restaurant.findById(restaurantId);
+    if (!restaurant) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({ 
+            success: false,
+            message: MESSAGES.RESTAURANT_NOT_FOUND 
+        });
+    }
+
+    // Check authorization - user must own the restaurant
+    if (req.user._id.toString() !== restaurant.userId.toString()) {
+        return res.status(STATUS_CODES.FORBIDDEN).json({ 
+            success: false,
+            message: MESSAGES.AUTHORIZATION_ERROR 
+        });
+    }
+
+    // Check if menu already exists
+    const existingMenu = await Menu.findOne({ restaurantId: restaurant._id });
+    if (existingMenu) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({ 
+            success: false,
+            message: MESSAGES.MENU_ALREADY_EXISTS 
+        });
+    }
+
+    // Create new menu - Fixed: should use restaurant._id, not req.user._id
+    const menu = new Menu({
+        restaurantId: restaurant._id, // This was the bug - was using req.user._id
+        name: (name && name.trim()) || restaurant.name,
+        description: (description && description.trim()) || restaurant.description,
+        image: req.menuImage || null,
+    });
+
+    await menu.save();
+
+    return res.status(STATUS_CODES.CREATED).json({
+        success: true,
+        message: MESSAGES.MENU_CREATED,
+        meta: {
+            restaurantId: restaurant._id,
+            menuId: menu._id
+        },
+        data: menu,
+    });
+});
+
+exports.updateMenu = asyncWrapper(async (req, res) => {
+    const { menuId } = req.params;
+    const { name, description } = req.body;
+
+    // Handle validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.VALIDATION_ERROR,
+            errors: errors.array()
+        });
+    }
+
+    const menu = await getMenuAndAuthorize(req, menuId);
+
+    // Handle image update
+    if (menu.image && req.menuImage) {
+        try {
             await cloud.deleteCloud(menu.image);
+        } catch (error) {
+            console.warn('Failed to delete old image from cloud:', error.message);
+            // Continue with update even if cloud deletion fails
         }
-        if (req.menuImage) {
-            menu.image = req.menuImage;
-        }
-        menu.name = name || menu.name;
-        menu.description = description || menu.description;
-        await menu.save();
-        return res.status(200).json({
-            message: 'Menu updated successfully',
-            result: 1,
-            meta: {},
-            data: menu
-        });
-    } catch (error) {
-        console.error("Menu Update Error:", error);
-        return res.status(error.status || 500).json({
-            message: error.message || 'Internal server error',
-            process: "Menu Update"
-        });
-
     }
-}
 
-exports.deleteMenu = async (req, res) => {
+    // Update menu fields
+    if (req.menuImage) {
+        menu.image = req.menuImage;
+    }
+    if (name && name.trim()) {
+        menu.name = name.trim();
+    }
+    if (description && description.trim()) {
+        menu.description = description.trim();
+    }
+
+    await menu.save();
+
+    return res.status(STATUS_CODES.OK).json({
+        success: true,
+        message: MESSAGES.MENU_UPDATED,
+        meta: {
+            menuId: menu._id,
+            restaurantId: menu.restaurantId
+        },
+        data: menu,
+    });
+});
+
+exports.deleteMenu = asyncWrapper(async (req, res) => {
+    const { menuId } = req.params;
+
+    const menu = await getMenuAndAuthorize(req, menuId);
+
+    // Use transaction for data consistency
+    const session = await Menu.startSession();
+    session.startTransaction();
+
     try {
-        if (!req.user) {
-            return res.status(401).json({ message: 'You Have To login First' });
-        }
-        const menu = await getMenuAndAuthorize(req, req.params.menuId);
+        // Delete associated data
+        await SubMenu.deleteMany({ menuId: menu._id }, { session });
+        await MenuItem.deleteMany({ 
+            $or: [
+                { parentId: menu._id, parentType: 'Menu' },
+                { parentId: { $in: await SubMenu.find({ menuId: menu._id }).distinct('_id') } }
+            ]
+        }, { session });
+
+        // Delete the menu
+        await Menu.findByIdAndDelete(menu._id, { session });
+
+        // Delete image from cloud storage
         if (menu.image) {
-            await cloud.deleteCloud(menu.image);
+            try {
+                await cloud.deleteCloud(menu.image);
+            } catch (error) {
+                console.warn('Failed to delete image from cloud:', error.message);
+                // Don't fail the transaction for cloud storage issues
+            }
         }
-        await menu.deleteOne();
-        return res.status(200).json({
-            message: 'Menu deleted successfully',
-            result: 1,
-            meta: {},
-            data: menu
+
+        await session.commitTransaction();
+
+        return res.status(STATUS_CODES.OK).json({
+            success: true,
+            message: MESSAGES.MENU_DELETED,
+            meta: {
+                menuId: menu._id,
+                restaurantId: menu.restaurantId,
+                deletedItems: {
+                    menu: 1,
+                    // Could add counts of deleted submenus and items here
+                }
+            },
+            data: {
+                deletedMenu: {
+                    _id: menu._id,
+                    name: menu.name,
+                    restaurantId: menu.restaurantId
+                }
+            }
         });
+
     } catch (error) {
-        console.error("Menu Deletion Error:", error);
-        return res.status(error.status || 500).json({
-            message: error.message || 'Internal server error',
-            process: "Menu Deletion"
+        await session.abortTransaction();
+        throw error;
+    } finally {
+        session.endSession();
+    }
+});
+
+// Get menu by ID (additional utility endpoint)
+exports.getMenuById = asyncWrapper(async (req, res) => {
+    const { menuId } = req.params;
+
+    const menu = await Menu.findById(menuId).populate('restaurantId', 'name username');
+    if (!menu) {
+        return res.status(STATUS_CODES.NOT_FOUND).json({
+            success: false,
+            message: MESSAGES.MENU_NOT_FOUND
         });
     }
-}
 
+    return res.status(STATUS_CODES.OK).json({
+        success: true,
+        message: MESSAGES.MENU_FOUND,
+        data: menu
+    });
+});
+
+// Helper function for authorization
 async function getMenuAndAuthorize(req, menuId) {
     const menu = await getMenuById(menuId);
     if (!menu) {
-        const error = new Error('Menu not found');
-        error.status = 404;
+        const error = new Error(MESSAGES.MENU_NOT_FOUND);
+        error.status = STATUS_CODES.NOT_FOUND;
         throw error;
     }
-    checkRestaurantAuthorization(req, menu);
+
+    // Get restaurant to check ownership
+    const restaurant = await Restaurant.findById(menu.restaurantId);
+    if (!restaurant) {
+        const error = new Error(MESSAGES.RESTAURANT_NOT_FOUND);
+        error.status = STATUS_CODES.NOT_FOUND;
+        throw error;
+    }
+
+    // Check if user owns the restaurant
+    if (req.user._id.toString() !== restaurant.userId.toString()) {
+        const error = new Error(MESSAGES.AUTHORIZATION_ERROR);
+        error.status = STATUS_CODES.FORBIDDEN;
+        throw error;
+    }
+
     return menu;
 }
+
+// Error handling middleware
+const errorHandler = (err, req, res, next) => {
+    console.error('Menu Controller Error:', err);
+
+    // Handle custom errors
+    if (err.status) {
+        return res.status(err.status).json({
+            success: false,
+            message: err.message,
+            process: "Menu Operation"
+        });
+    }
+
+    // Mongoose validation error
+    if (err.name === 'ValidationError') {
+        const errors = Object.values(err.errors).map(e => e.message);
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: MESSAGES.VALIDATION_ERROR,
+            errors
+        });
+    }
+
+    // Mongoose cast error (invalid ObjectId)
+    if (err.name === 'CastError') {
+        return res.status(STATUS_CODES.BAD_REQUEST).json({
+            success: false,
+            message: `Invalid ${err.path}: ${err.value}`
+        });
+    }
+
+    // Default error
+    res.status(STATUS_CODES.INTERNAL_SERVER_ERROR).json({
+        success: false,
+        message: MESSAGES.INTERNAL_SERVER_ERROR,
+        process: "Menu Operation",
+        error: process.env.NODE_ENV === "development" ? err.message : undefined
+    });
+};
+
+// Apply middleware to routes
+exports.getRestaurantMenu = [requireAuth, exports.getRestaurantMenu];
+exports.createMenu = [requireAuth, exports.createMenu];
+exports.updateMenu = [requireAuth, exports.updateMenu];
+exports.deleteMenu = [requireAuth, exports.deleteMenu];
+exports.getMenuById = [requireAuth, exports.getMenuById];
+exports.errorHandler = errorHandler;

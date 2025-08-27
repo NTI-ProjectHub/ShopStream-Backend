@@ -25,18 +25,6 @@ const menuSchema = new mongoose.Schema({
         type: String,
         default: 'No Cover Image'
     },
-    subMenus: [
-        {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'SubMenu'
-        }
-    ],
-    items: [
-        {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'MenuItem'
-        }
-    ]
 });
 
 const Menu = mongoose.model('Menu', menuSchema);

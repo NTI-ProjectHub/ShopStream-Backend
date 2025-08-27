@@ -1,0 +1,630 @@
+const mongoose = require('mongoose');
+
+const menuSchema = new mongoose.Schema({
+    restaurantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Restaurant',
+        required: true,
+        unique: true
+    },
+    name: {
+        type: String,
+        required: true,
+        trim: true,
+        minlength: 3,
+        maxlength: 50
+    },
+    description: {
+        type: String,
+        required: true,
+        trim: true,
+        minlength: 10,
+        maxlength: 500
+    },
+    image: {
+        type: String,
+        default: 'No Cover Image'
+    },
+});
+
+const Menu = mongoose.model('Menu', menuSchema);
+
+module.exports = Menu;
+
+const mongoose = require("mongoose");
+
+// categories
+const foodCategories = [
+  // Food
+  "Appetizer",
+  "Main Course",
+  "Side Dish",
+  "Soup",
+  "Salad",
+  "Sandwich",
+  "Burger",
+  "Pizza",
+  "Pasta",
+  "Rice Bowl",
+  "Seafood",
+  "Steak & Grill",
+  "BBQ",
+  "Noodles",
+  "Street Food",
+  "Fast Food",
+  "Tapas",
+
+  // Dessert
+  "Dessert",
+  "Bakery",
+  "Cake",
+  "Cookies",
+  "Ice Cream",
+  "Chocolate",
+  "Fruit",
+
+  // Dietary
+  "Vegetarian",
+  "Vegan",
+  "Gluten-Free",
+  "Dairy-Free",
+  "Keto",
+  "Halal",
+  "Kosher",
+  "Organic",
+  "Healthy",
+  "Kids",
+
+  // Drinks
+  "Soft Drink",
+  "Juice",
+  "Smoothie",
+  "Water",
+  "Coffee",
+  "Tea",
+  "Milkshake",
+  "Beer",
+  "Wine",
+  "Cocktail",
+  "Spirits",
+  "Hot Drink",
+  "Cold Drink",
+
+  // Regional
+  "American",
+  "Italian",
+  "French",
+  "Mexican",
+  "Middle Eastern",
+  "Indian",
+  "Chinese",
+  "Japanese",
+  "Korean",
+  "Thai",
+  "Mediterranean",
+  "African",
+  "Other Regional",
+
+  // Specials
+  "Chef Special",
+  "Seasonal",
+  "Limited Edition",
+  "Combo",
+
+  "Other",
+];
+
+const variationSchema = new mongoose.Schema({
+  isAvailable: {
+    type: Boolean,
+    default: true,
+  },
+  size: {
+    type: String,
+    enum: ["Small", "Medium", "Large"],
+    default: "Medium",
+  },
+  price: {
+    type: Number,
+    required: true,
+    min: 0,
+    validate: {
+      validator: (v) =>
+        Number.isFinite(v) && /^\d+(\.\d{1,2})?$/.test(v.toString()),
+      message: (props) =>
+        `${props.value} is not a valid price format (max 2 decimals)`,
+    },
+  },
+});
+
+const menuItemSchema = new mongoose.Schema(
+  {
+    parentType: {
+      type: String,
+      enum: ["Menu", "Submenu"],
+      required: true, // This should be required
+    },
+    parentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      refPath: "parentType",
+      required: true,
+    },
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+      minlength: 3,
+      maxlength: 50,
+    },
+    description: {
+      type: String,
+      required: true,
+      trim: true,
+      minlength: 10,
+      maxlength: 500,
+    },
+    category: {
+      type: [String],
+      required: true,
+      enum: foodCategories,
+      default: ["Other"],
+      validate: {
+        validator: function(v) {
+          return v && v.length > 0; // Ensure at least one category
+        },
+        message: 'At least one category is required'
+      }
+    },
+    variations: {
+      type: [variationSchema],
+      required: true,
+      validate: {
+        validator: function(v) {
+          return v && v.length > 0; // Ensure at least one variation
+        },
+        message: 'At least one variation is required'
+      }
+    },
+    image: {
+      type: String,
+      default: null,
+      validate: {
+        validator: (v) =>
+          !v || /^https?:\/\/.+\.(jpg|jpeg|png|webp|gif)$/i.test(v),
+        message: (props) => `${props.value} is not a valid image URL`,
+      },
+    },
+  },
+  { timestamps: true }
+);
+
+// Corrected indexes - these should match your actual schema fields
+menuItemSchema.index({ parentId: 1, parentType: 1 }); // Compound index for efficient queries
+menuItemSchema.index({ category: 1 }); // For category filtering
+menuItemSchema.index({ name: 1, parentId: 1 }, { unique: true }); // Prevent duplicate names within same parent
+menuItemSchema.index({ createdAt: -1 }); // For sorting by creation date
+
+const MenuItem = mongoose.model("MenuItem", menuItemSchema);
+
+
+const mongoose = require('mongoose');
+
+const subMenuSchema = new mongoose.Schema({
+    menuId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Menu',
+        required: true
+    },
+    name: {
+        type: String,
+        required: true,
+        trim: true,
+        minlength: 3,
+        maxlength: 50
+    },
+    description: {
+        type: String,
+        required: true,
+        trim: true,
+        minlength: 10,
+        maxlength: 500
+    },
+    category: {
+        type: String,
+        required: true,
+        enum: ['Breakfast', 'Brunch', 'Lunch', 'Dinner', 'Snacks', 'Dessert', 'Drinks'],
+        trim: true,
+        minlength: 3,
+        maxlength: 50
+    },
+    image: {
+        type: String,
+        default: 'No Image'
+    },
+    isAvailable: {
+        type: Boolean,
+        default: true
+    },
+});
+
+const SubMenu = mongoose.model('SubMenu', subMenuSchema);
+
+module.exports = SubMenu;
+
+const mongoose = require('mongoose');
+
+const orderSchema = new mongoose.Schema({
+    customerId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    restaurantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Restaurant',
+        required: true
+    },
+    adminId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
+    deliveryFee:{
+        type: Number,
+        default: 0,
+        min: 0,
+        required: true
+    },
+    totalPrice: {
+        type: Number,
+        required: true,
+        min: 0
+    },
+    deliveryAddress: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    timeToDeliver: {
+        type: Number,
+        default: 0,
+        min: 0,
+        required: true
+    },
+    PaymentMethod: {
+        type: String,
+        required: true,
+        enum: ['cash', 'card', 'online', 'wallet'],
+        lowercase: true
+    },
+    status: {
+        type: String,
+        enum: ['pending', 'approved', 'preparing', 'ready', 'completed', 'cancelled'],
+        default: 'pending'
+    },
+    notes: {
+        type: String,
+        trim: true
+    }
+}, {
+    timestamps: true
+});
+
+// Indexes for better query performance
+orderSchema.index({ customerId: 1, createdAt: -1 });
+orderSchema.index({ restaurantId: 1, status: 1 });
+orderSchema.index({ status: 1, createdAt: -1 });
+
+const Order = mongoose.model('Order', orderSchema);
+module.exports = Order;
+
+const mongoose = require('mongoose');
+
+const orderItemSchema = new mongoose.Schema({
+    orderId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Order',
+        required: true
+    },
+    itemId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'MenuItem',
+        required: true
+    },
+    quantity: {
+        type: Number,
+        required: true,
+        min: 1
+    },
+    price: {
+        type: Number,
+        required: true,
+        min: 0
+    },
+    variationSize: {
+        type: String,
+        required: true
+    },
+    specialInstructions: {
+        type: String,
+        trim: true
+    }
+}, {
+    timestamps: true
+});
+
+// Index for better query performance
+orderItemSchema.index({ orderId: 1 });
+
+const OrderItem = mongoose.model('OrderItem', orderItemSchema);
+module.exports = OrderItem;
+
+const mongoose = require('mongoose');
+const Restaurant = require('./restaurant.model');
+
+const restaurantRequestSchema = new mongoose.Schema({
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    restaurantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Restaurant',
+        required: true
+    },
+    adminId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
+    type: {
+        type: String,
+        enum: ['create' , 'delete'],
+        default: 'create'
+    },
+    status: {
+        type: String,
+        enum: ['pending', 'approved', 'rejected'],
+        default: 'pending'
+    }
+},
+{
+    timestamps: true
+});
+
+const RestaurantRequest = mongoose.model('RestaurantRequest', restaurantRequestSchema);
+
+module.exports = RestaurantRequest;
+
+
+const mongoose = require('mongoose');
+
+const restaurantSchema = new mongoose.Schema({
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    name: {
+        type: String,
+        required: true,
+        trim: true,
+        minlength: 3,
+        maxlength: 50
+    },
+    username: {
+        type: String,
+        required: true,
+        trim: true,
+        minlength: 3,
+        maxlength: 50,
+        validate: {
+            validator: function(v) {
+                return /^[a-zA-Z0-9_]+$/.test(v);
+            },
+            message: props => `${props.value} is not a valid username!`
+        },
+        unique: true
+    },
+    description: {
+        type: String,
+        required: true,
+        trim: true,
+        minlength: 10,
+        maxlength: 500
+    },
+    address: {
+        type: String,
+        required: true,
+        trim: true,
+        minlength: 10,
+        maxlength: 500
+    },
+    phone: {
+        type: String,
+        required: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^\+?[1-9]\d{1,14}$/.test(v);
+            },
+            message: props => `${props.value} is not a valid phone number!`
+        }
+    },
+    coverImage: {
+        type: String,
+        required: true
+    },
+    type:{
+        type: [String],
+        enum: {
+            values: [
+            "Food",
+            "Grocery",
+            "Convenience",
+            "Alcohol",
+            "Health",
+            "Retail",
+            "Pet",
+            "Flowers",
+            "Personal Care",
+            "Electronics"
+            ],
+            message: "{VALUE} is not a valid type!"
+        },
+        required: true
+    },
+    rating: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 5,
+        validate: {
+            validator: Number.isInteger,
+            message: "{VALUE} is not an integer value!"
+        }
+    },
+    completedOrders: {
+        type: Number,
+        default: 0
+    },
+    status: {
+        type: String,
+        enum: ['pending', 'open', 'closed'],
+        default: 'pending'
+    },
+},
+{timestamps: true}
+);
+
+const Restaurant = mongoose.model('Restaurant', restaurantSchema);
+
+module.exports = Restaurant;
+
+const mongoose = require('mongoose');
+
+const paymentSchema = new mongoose.Schema({
+    orderId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Order',
+        required: true
+    },
+    paymentMethod: {
+        type: String,
+        required: true,
+        enum: ['online', 'cash', 'card', 'bank transfer'],
+        default: 'online'
+    },
+    amount: {
+        type: Number,
+        required: true,
+        min: 0
+    },
+    status: {
+        type: String,
+        enum: ['pending', 'completed', 'failed'],
+        default: 'pending'
+    },
+},
+{ timestamps: true });
+
+const Payment = mongoose.model('Payment', paymentSchema);
+
+module.exports = Payment;
+
+const mongoose = require('mongoose');
+
+const reviewSchema = new mongoose.Schema({
+    customerId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    restaurantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Restaurant',
+        required: true
+    },
+    rating: {
+        type: Number,
+        required: true,
+        min: 0,
+        max: 5
+    },
+    comment: {
+        type: String,
+        required: true,
+        trim: true,
+        minlength: 3,
+        maxlength: 500
+    },
+},
+{ timestamps: true });
+
+const Review = mongoose.model('Review', reviewSchema);
+
+module.exports = Review;
+
+const mongoose = require('mongoose');
+
+const userSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true,
+        trim: true,
+        minlength: 3,
+        maxlength: 50
+    },
+    username: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true,
+        validate: {
+            validator: function(v) {
+                return /^[a-zA-Z0-9_]+$/.test(v);
+            },
+            message: props => `${props.value} is not a valid username!`
+        },
+        minlength: 3,
+        maxlength: 30
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true,
+        lowercase: true,
+        validate: {
+            validator: function(v) {
+                return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+            },
+            message: props => `${props.value} is not a valid email!`
+        }
+    },
+    password: {
+        type: String,
+        required: true,
+        minlength: 6
+    },
+    profilePicture: {
+        type: String,
+        default: 'No Profile Picture'
+    },
+    phone: {
+        type: String,
+        default: ''
+    },
+    role: {
+        type: String,
+        enum: ['customer', 'restaurant' ,'admin'],
+        default: 'customer'
+    },
+} , 
+{timestamps: true}
+);
+
+const User = mongoose.model('User', userSchema);
+
+module.exports = User;
