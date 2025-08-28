@@ -3,7 +3,7 @@ const menuController = require('../controllers/menu.controller');
 const router = express.Router();
 const { authenticate } = require('../middlewares/authentication.middleware');
 const { roleCheck } = require('../middlewares/authorization.middleware');
-const upload = require('../config/multer.config');
+const upload = require('../config/multer.Config');
 const cloud = require('../middlewares/cloud');
 
 // ✅ Get all menu items for a restaurant
