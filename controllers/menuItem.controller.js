@@ -10,18 +10,6 @@ const MESSAGES = require("../constants/messages");
 const STATUS_CODES = require("../constants/status_Codes");
 const {asyncWrapper} = require("../middlewares/asyncWrapper.middleware");
 
-
-// Auth check
-const requireAuth = (req, res, next) => {
-    if (!req.user) {
-        return res.status(STATUS_CODES.UNAUTHORIZED).json({ 
-            success: false,
-            message: MESSAGES.AUTHENTICATION_ERROR 
-        });
-    }
-    next();
-};
-
 exports.getAllItems = asyncWrapper(async (req, res) => {
     const { menuId } = req.params;
 
@@ -451,10 +439,4 @@ const errorHandler = (err, req, res, next) => {
     });
 };
 
-// Apply middleware to routes
-exports.getAllItems = [requireAuth, exports.getAllItems];
-exports.createItem = [requireAuth, exports.createItem];
-exports.updateItem = [requireAuth, exports.updateItem];
-exports.deleteItem = [requireAuth, exports.deleteItem];
-exports.getItemById = [requireAuth, exports.getItemById];
 exports.errorHandler = errorHandler;

@@ -1,42 +1,80 @@
-exports.restaurantFilter = async (model, req) => {
-  const query = req.query;
-  const allowedFilters = ["type", "status", "rating"]; // whitelist allowed query params
+const mongoose = require("mongoose");
+
+// ✅ Generic Filter Builder
+const buildFilter = (query, config) => {
   const filter = {};
-
-  allowedFilters.forEach((field) => {
-    if (query[field]) {
-      filter[field] = query[field];
+  for (const [field, handler] of Object.entries(config)) {
+    if (query[field] !== undefined) {
+      const value = handler(query[field]);
+      if (typeof value === "object" && !Array.isArray(value)) {
+        // merge nested conditions like { "variations.size": "M" }
+        Object.assign(filter, value);
+      } else {
+        filter[field] = value;
+      }
     }
-  });
-
+  }
   return filter;
 };
 
-exports.orderFilter = async (model, req) => {
-  const query = req.query;
-  const allowedFilters = ["status", "rating"]; // whitelist allowed query params
-  const filter = {};
-
-  allowedFilters.forEach((field) => {
-    if (query[field]) {
-      filter[field] = query[field];
-    }
+// ✅ User filter
+exports.userFilter = (req) =>
+  buildFilter(req.query, {
+    role: (val) => val,
+    status: (val) => val,
   });
 
-  return filter;
-};
-
-exports.reviewFilter = async (req) => {
-  const query = req.query;
-  const allowedFilters = ["restaurantId", "customerId", "rating"];
-  const filter = {};
-
-  allowedFilters.forEach((field) => {
-    if (query[field]) {
-      filter[field] = query[field];
-    }
+// ✅ Restaurant filter
+exports.restaurantFilter = (req) =>
+  buildFilter(req.query, {
+    ownerId: (val) =>
+      mongoose.Types.ObjectId.isValid(val) ? new mongoose.Types.ObjectId(val) : null,
+    category: (val) => (Array.isArray(val) ? { $in: val } : val),
+    rating: (val) => parseFloat(val),
   });
 
-  return filter;
-};
+// ✅ Menu filter
+exports.menuFilter = (req) =>
+  buildFilter(req.query, {
+    restaurantId: (val) =>
+      mongoose.Types.ObjectId.isValid(val) ? new mongoose.Types.ObjectId(val) : null,
+    category: (val) => (Array.isArray(val) ? { $in: val } : val),
+  });
 
+// ✅ SubMenu filter
+exports.subMenuFilter = (req) =>
+  buildFilter(req.query, {
+    menuId: (val) =>
+      mongoose.Types.ObjectId.isValid(val) ? new mongoose.Types.ObjectId(val) : null,
+    category: (val) => (Array.isArray(val) ? { $in: val } : val),
+  });
+
+// ✅ Item filter
+exports.itemFilter = (req) =>
+  buildFilter(req.query, {
+    parentId: (val) =>
+      mongoose.Types.ObjectId.isValid(val) ? new mongoose.Types.ObjectId(val) : null,
+    size: (val) => ({ "variations.size": val }),
+    isAvailable: (val) => ({ "variations.isAvailable": val === "true" }),
+    category: (val) => (Array.isArray(val) ? { $in: val } : val),
+  });
+
+// ✅ Order filter
+exports.orderFilter = (req) =>
+  buildFilter(req.query, {
+    customerId: (val) =>
+      mongoose.Types.ObjectId.isValid(val) ? new mongoose.Types.ObjectId(val) : null,
+    restaurantId: (val) =>
+      mongoose.Types.ObjectId.isValid(val) ? new mongoose.Types.ObjectId(val) : null,
+    status: (val) => val,
+  });
+
+// ✅ Review filter
+exports.reviewFilter = (req) =>
+  buildFilter(req.query, {
+    userId: (val) =>
+      mongoose.Types.ObjectId.isValid(val) ? new mongoose.Types.ObjectId(val) : null,
+    restaurantId: (val) =>
+      mongoose.Types.ObjectId.isValid(val) ? new mongoose.Types.ObjectId(val) : null,
+    rating: (val) => parseFloat(val),
+  });
