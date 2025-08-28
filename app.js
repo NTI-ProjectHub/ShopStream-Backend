@@ -18,7 +18,7 @@ connectDB();
 
 // Middlewares
 app.use(cors({
-  origin: "*",
+  origin: 'http://localhost:4200', // Specify your Angular app’s origin
   methods: ["GET", "POST", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
