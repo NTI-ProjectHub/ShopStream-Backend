@@ -10,6 +10,7 @@ const menuRouter = require('./routes/menu.route');
 const menuItemRouter = require('./routes/menuItem.route');
 const reviewRouter = require('./routes/review.route');
 const adminRouter = require('./routes/admin.route');
+const paymentRouter = require('./routes/payment.route');
 const initial = require('./utils/initial');
 
 connectDB();
@@ -49,6 +50,7 @@ app.use('/api/restaurants', menuRouter);
 app.use('/api/menuItems' , menuItemRouter);
 app.use('/api/orders' , orderRouter);
 app.use('/api/reviews' , reviewRouter);
+app.use('/api/payment', paymentRouter);
 
 app.get('/', (req, res) => {
   res.send('Welcome to the Uber Eats Clone API');
