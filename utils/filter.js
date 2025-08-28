@@ -27,8 +27,6 @@ exports.userFilter = (req) =>
 // ✅ Restaurant filter
 exports.restaurantFilter = (req) =>
   buildFilter(req.query, {
-    ownerId: (val) =>
-      mongoose.Types.ObjectId.isValid(val) ? new mongoose.Types.ObjectId(val) : null,
     category: (val) => (Array.isArray(val) ? { $in: val } : val),
     rating: (val) => parseFloat(val),
   });
@@ -72,7 +70,7 @@ exports.orderFilter = (req) =>
 // ✅ Review filter
 exports.reviewFilter = (req) =>
   buildFilter(req.query, {
-    userId: (val) =>
+    customerId: (val) =>
       mongoose.Types.ObjectId.isValid(val) ? new mongoose.Types.ObjectId(val) : null,
     restaurantId: (val) =>
       mongoose.Types.ObjectId.isValid(val) ? new mongoose.Types.ObjectId(val) : null,
