@@ -4,7 +4,9 @@ const User = require('../models/user.model.js');
 
 exports.authenticate = async (req, res, next) => {
     try {
-        const accessToken = req.cookies?.accessToken; 
+        const accessToken = req.cookies?.accessToken 
+        || req.headers['authorization']?.split(' ')[1]; 
+
         if (!accessToken) {
             return next(); // Allow unauthenticated users to continue
         }
