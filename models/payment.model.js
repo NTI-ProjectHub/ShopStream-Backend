@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const mongoosePaginate = require('mongoose-paginate-v2');
 
 const paymentSchema = new mongoose.Schema({
     orderId: {
@@ -19,12 +20,36 @@ const paymentSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['pending', 'completed', 'failed'],
+        enum: ['pending', 'completed', 'failed', 'refunded'],
         default: 'pending'
     },
-},
-{ timestamps: true });
+    stripePaymentIntentId: {
+        type: String,
+        sparse: true // Allows multiple null values
+    },
+    stripeRefundId: {
+        type: String,
+        sparse: true
+    },
+    refundAmount: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    refundReason: {
+        type: String,
+        trim: true
+    }
+}, { timestamps: true });
+
+// Indexes
+paymentSchema.index({ orderId: 1 });
+paymentSchema.index({ status: 1 });
+paymentSchema.index({ stripePaymentIntentId: 1 });
+paymentSchema.index({ createdAt: -1 });
+
+// Add pagination plugin
+paymentSchema.plugin(mongoosePaginate);
 
 const Payment = mongoose.model('Payment', paymentSchema);
-
 module.exports = Payment;

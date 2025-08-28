@@ -1,35 +1,12 @@
 const { getMenuById } = require("../utils/Helper/dataAccess");
 const SubMenu = require("../models/menu/subMenu.model");
 const MenuItem = require("../models/menu/menuItem.model");
-const Menu = require("../models/menu/menu.model");
-const Restaurant = require("../models/restaurant.model");
 const { validationResult } = require('express-validator');
+const {checkMenuOwnership} = require("../utils/Helper/checkMenuOwnership");
 const cloud = require("../middlewares/cloud");
 const MESSAGES = require("../constants/messages");
 const STATUS_CODES = require("../constants/status_Codes");
 const {asyncWrapper} = require("../middlewares/asyncWrapper.middleware");
-
-// Auth middleware check
-const requireAuth = (req, res, next) => {
-    if (!req.user) {
-        return res.status(STATUS_CODES.UNAUTHORIZED).json({ 
-            success: false,
-            message: MESSAGES.AUTHENTICATION_ERROR 
-        });
-    }
-    next();
-};
-
-// Authorization helper function
-async function checkMenuOwnership(userId, menuId) {
-    const menu = await Menu.findById(menuId);
-    if (!menu) return false;
-    
-    const restaurant = await Restaurant.findById(menu.restaurantId);
-    if (!restaurant) return false;
-    
-    return restaurant.userId.toString() === userId.toString();
-}
 
 exports.getSubMenu = asyncWrapper(async (req, res) => {
     const { menuId, subMenuId } = req.params;
@@ -438,10 +415,9 @@ const errorHandler = (err, req, res, next) => {
     });
 };
 
-// Apply middleware to routes
-exports.getSubMenu = [requireAuth, exports.getSubMenu];
-exports.createSubMenu = [requireAuth, exports.createSubMenu];
-exports.updateSubMenu = [requireAuth, exports.updateSubMenu];
-exports.deleteSubMenu = [requireAuth, exports.deleteSubMenu];
-exports.getSubMenusByMenu = [requireAuth, exports.getSubMenusByMenu];
-exports.errorHandler = errorHandler;
+exports.getSubMenu;
+exports.createSubMenu;
+exports.updateSubMenu;
+exports.deleteSubMenu;
+exports.getSubMenusByMenu;
+exports.errorHandler;
