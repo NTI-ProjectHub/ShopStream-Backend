@@ -1,5 +1,16 @@
 const mongoose = require('mongoose');
 
+/**
+ * Enhanced pagination utility with better error handling and flexibility
+ * @param {mongoose.Model} model - Mongoose model to query
+ * @param {Object} req - Express request object
+ * @param {Object} baseQuery - Base query conditions (default: {})
+ * @param {Object} filterQuery - Additional filter conditions from filters (default: {})
+ * @param {Array|Object|String} populateOptions - Populate options (optional)
+ * @param {Object} sortOptions - Sort options (default: { createdAt: -1 })
+ * @param {Object} selectFields - Fields to select (optional)
+ * @returns {Object} Pagination result with data, meta information
+ */
 exports.pagination = async (
   model, 
   req, 
@@ -208,7 +219,7 @@ exports.aggregationPagination = async (model, req, pipeline = []) => {
  * @returns {Object} Combined query
  */
 function combineQueries(...queries) {
-  const validQueries = queries.filter(q => q && typeof q === 'object' && Object.keys(q).length > 0);
+  const validQueries = queries.filter(q => q && typeof q === 'object' && !Array.isArray(q) && Object.keys(q).length > 0);
   
   if (validQueries.length === 0) {
     return {};
@@ -218,8 +229,36 @@ function combineQueries(...queries) {
     return validQueries[0];
   }
   
-  // Use $and to combine multiple conditions safely
-  return { $and: validQueries };
+  // Merge queries intelligently
+  const combined = {};
+  const conflicts = [];
+  
+  for (const query of validQueries) {
+    for (const [key, value] of Object.entries(query)) {
+      if (combined[key] !== undefined) {
+        // Handle conflicts by using $and
+        conflicts.push({ [key]: combined[key] }, { [key]: value });
+        delete combined[key];
+      } else {
+        combined[key] = value;
+      }
+    }
+  }
+  
+  if (conflicts.length > 0) {
+    // Add remaining non-conflicting fields
+    const nonConflictingQueries = validQueries.filter(q => 
+      !Object.keys(q).some(key => conflicts.some(c => c[key] !== undefined))
+    );
+    
+    if (Object.keys(combined).length > 0) {
+      return { $and: [combined, ...conflicts] };
+    } else {
+      return { $and: validQueries };
+    }
+  }
+  
+  return combined;
 }
 
 /**

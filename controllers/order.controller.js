@@ -236,6 +236,14 @@ exports.cancelOrder = async (req, res) => {
 
 exports.getOrders = async (req, res) => {
   try {
+    if (!req.user) {
+      return res.status(401).json({ // Using 401 directly instead of STATUS_CODES.UNAUTHORIZED
+        message: MESSAGES.UNAUTHORIZED,
+        status: 401,
+        process: "Order Retrieval",
+      });
+    }
+
     let filter = {};
     
     // Add status filter if provided
@@ -249,9 +257,9 @@ exports.getOrders = async (req, res) => {
     } else if (req.user.role === "restaurant") {
       const restaurant = await getRestaurantByUserId(req.user._id);
       if (!restaurant) {
-        return res.status(STATUS_CODES.NOT_FOUND).json({ 
+        return res.status(404).json({ // Using 404 directly
           message: MESSAGES.RESTAURANT_NOT_FOUND,
-          status: STATUS_CODES.NOT_FOUND,
+          status: 404,
           process: "Order Retrieval",
         });
       }
@@ -259,33 +267,45 @@ exports.getOrders = async (req, res) => {
     }
     // Admin can see all orders (no additional filter)
 
-    const { total, page, limit, data } = await pagination(
+    // Use the improved pagination
+    const result = await pagination(
       Order, 
       req, 
-      filter,
+      filter, // Base query
+      {}, // Empty filter query since we built filter above
       [
         { path: 'customerId', select: 'name email phone' },
         { path: 'restaurantId', select: 'name address phone' }
       ]
     );
 
-    res.status(STATUS_CODES.SUCCESS).json({
+    // Handle pagination errors
+    if (!result.success) {
+      return res.status(500).json({
+        message: "Error retrieving orders",
+        status: 500,
+        process: "Order Retrieval",
+        error: result.error
+      });
+    }
+
+    res.status(200).json({
       message: MESSAGES.ORDERS_RETRIEVED,
       status: "success",
-      result: { total, page, limit },
+      result: { total: result.total, page: result.page, limit: result.limit },
       meta: { 
-        totalOrders: total,
-        currentPage: page,
-        itemsPerPage: limit,
+        totalOrders: result.total,
+        currentPage: result.page,
+        itemsPerPage: result.limit,
         role: req.user.role
       },
-      data,
+      data: result.data,
     });
   } catch (error) {
     console.error("Error fetching orders:", error);
-    res.status(STATUS_CODES.INTERNAL_SERVER_ERROR).json({
+    res.status(500).json({
       message: MESSAGES.INTERNAL_ERROR,
-      status: STATUS_CODES.INTERNAL_SERVER_ERROR,
+      status: 500,
       process: "Order Retrieval",
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
