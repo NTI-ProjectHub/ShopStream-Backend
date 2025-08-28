@@ -1,6 +1,7 @@
 const Restaurant = require('../models/restaurant/restaurant.model');
 const RestaurantRequest = require('../models/restaurant/restaurant_Request.model');
 const Menu = require('../models/menu/menu.model');
+const Review = require('../models/review.model');
 const { asyncWrapper } = require('../middlewares/asyncWrapper.middleware');
 const dataAccessHelper = require('../utils/Helper/dataAccess');
 const { pagination } = require('../utils/pagination');
@@ -42,11 +43,12 @@ exports.getRestaurantById = asyncWrapper(async (req, res) => {
 
     const menu = await dataAccessHelper.getMenuByRestaurantId(id);
     const subMenus = menu ? await dataAccessHelper.getSubMenusByMenuId(menu._id) : [];
+    const reviews = await Review.find({ restaurantId: id });
 
     res.status(STATUS_CODES.OK).json({
         success: true,
         message: MESSAGES.RESTAURANT_RETRIEVED_SUCCESSFULLY,
-        data: { restaurant, menu: menu || null, subMenus }
+        data: { restaurant, menu: menu || null, subMenus, reviews }
     });
 });
 
