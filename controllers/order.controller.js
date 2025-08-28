@@ -23,13 +23,6 @@ const STATUS = {
 
 exports.placeOrder = async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(STATUS_CODES.UNAUTHORIZED).json({
-        message: MESSAGES.UNAUTHORIZED,
-        status: STATUS_CODES.UNAUTHORIZED,
-        process: "Order Placement",
-      });
-    }
 
     const { orderItems, deliveryAddress, PaymentMethod, deliveryFee, timeToDeliver, notes } = req.body;
 
@@ -119,13 +112,6 @@ exports.placeOrder = async (req, res) => {
 
 exports.updateOrderStatus = async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(STATUS_CODES.UNAUTHORIZED).json({
-        message: MESSAGES.UNAUTHORIZED,
-        status: STATUS_CODES.UNAUTHORIZED,
-        process: "Order Status Update",
-      });
-    }
 
     const { status } = req.body;
     const orderId = req.params.id;
@@ -194,13 +180,6 @@ exports.updateOrderStatus = async (req, res) => {
 
 exports.cancelOrder = async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(STATUS_CODES.UNAUTHORIZED).json({
-        message: MESSAGES.UNAUTHORIZED,
-        status: STATUS_CODES.UNAUTHORIZED,
-        process: "Order Cancellation",
-      });
-    }
 
     const order = await Order.findById(req.params.id);
     if (!order) {
@@ -257,14 +236,6 @@ exports.cancelOrder = async (req, res) => {
 
 exports.getOrders = async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(STATUS_CODES.UNAUTHORIZED).json({ 
-        message: MESSAGES.UNAUTHORIZED,
-        status: STATUS_CODES.UNAUTHORIZED,
-        process: "Order Retrieval",
-      });
-    }
-
     let filter = {};
     
     // Add status filter if provided
@@ -323,13 +294,6 @@ exports.getOrders = async (req, res) => {
 
 exports.getOrderById = async (req, res) => {
   try {
-    if (!req.user) {
-      return res.status(STATUS_CODES.UNAUTHORIZED).json({ 
-        message: MESSAGES.UNAUTHORIZED,
-        status: STATUS_CODES.UNAUTHORIZED,
-        process: "Order Retrieval",
-      });
-    }
 
     const order = await Order.findById(req.params.id)
       .populate('customerId', 'name email phone')

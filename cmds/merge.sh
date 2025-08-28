@@ -25,3 +25,4 @@ echo "Pushing $TARGET_BRANCH to zack..."
 git push zack $TARGET_BRANCH
 
 echo "Merge complete!"
+git checkout Development
