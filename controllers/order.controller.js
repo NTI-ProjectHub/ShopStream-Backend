@@ -443,14 +443,8 @@ const validateMenuItems = async (fetchedItems, orderItems) => {
       continue;
     }
 
-    if (!menuItem.isAvailable) {
-      unAvailableItems.push({
-        item: menuItem._id,
-        name: menuItem.name,
-        message: "Menu Item is not available",
-      });
-      continue;
-    }
+    // ✅ REMOVED: Check for menuItem.isAvailable since it doesn't exist in your schema
+    // The menu item itself doesn't have isAvailable, only variations do
 
     // Get restaurant ID and ensure all items are from the same restaurant
     const itemRestaurantId = await getRestaurantIdFromMenuItem(menuItem);
@@ -460,14 +454,15 @@ const validateMenuItems = async (fetchedItems, orderItems) => {
       unAvailableItems.push({
         item: menuItem._id,
         name: menuItem.name,
-        message: MESSAGES.MIXED_RESTAURANT_ITEMS,
+        message: MESSAGES.MIXED_RESTAURANT_ITEMS || "Items must be from the same restaurant",
       });
       continue;
     }
 
     // Find the requested variation
     const variation = menuItem.variations.find(v => 
-      v.size === requested.variation.size || v._id.toString() === requested.variation.id
+      v.size === requested.variation.size || 
+      (requested.variation.id && v._id.toString() === requested.variation.id)
     );
 
     if (!variation) {
@@ -479,6 +474,7 @@ const validateMenuItems = async (fetchedItems, orderItems) => {
       continue;
     }
 
+    // ✅ Check variation availability (this is the correct check)
     if (!variation.isAvailable) {
       unAvailableItems.push({
         item: menuItem._id,

@@ -38,7 +38,7 @@ const orderSchema = new mongoose.Schema({
         min: 0,
         required: true
     },
-    paymentMethod: {
+    PaymentMethod: {
         type: String,
         required: true,
         enum: ['cash', 'card', 'online', 'wallet'],
