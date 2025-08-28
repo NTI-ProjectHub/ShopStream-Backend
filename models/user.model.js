@@ -53,6 +53,15 @@ const userSchema = new mongoose.Schema({
         enum: ['customer', 'restaurant' ,'admin'],
         default: 'customer'
     },
+    status: {
+        type: String,
+        enum: ['active', 'suspended'],
+        default: 'active'
+    },
+    suspendedUntil: {
+        type: Date,
+        default: null
+    }
 } , 
 {timestamps: true}
 );

@@ -9,6 +9,7 @@ const orderRouter = require('./routes/order.route');
 const menuRouter = require('./routes/menu.route');
 const menuItemRouter = require('./routes/menuItem.route');
 const reviewRouter = require('./routes/review.route');
+const adminRouter = require('./routes/admin.route');
 const initial = require('./utils/initial');
 
 connectDB();
@@ -24,13 +25,7 @@ const allowedOrigins = [
 
 
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
+  origin: 'http://localhost:4200', // Specify your Angular app’s origin
   methods: ["GET", "POST", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
@@ -48,6 +43,7 @@ app.use(express.urlencoded({ extended: true }));
 
 //Routes
 app.use('/api/auth', userRouter);
+app.use('/api/admin', adminRouter);
 app.use('/api/restaurants', restaurantRouter);
 app.use('/api/restaurants', menuRouter);
 app.use('/api/menuItems' , menuItemRouter);
