@@ -1,6 +1,6 @@
 // Helper function to find menu or submenu
-const Menu = require('../models/menu.model');
-const SubMenu = require('../models/subMenu.model');
+const Menu = require('../../models/menu/menu.model');
+const SubMenu = require('../../models/menu/subMenu.model');
 exports.findMenuContext = async (menuId) =>{
     // First try to find as Menu
     let menu = await Menu.findById(menuId);

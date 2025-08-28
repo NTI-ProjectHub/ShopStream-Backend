@@ -77,6 +77,15 @@ const MESSAGES = {
   ORDERS_RETRIEVED: "Orders retrieved successfully",
   ORDER_RETRIEVED: "Order retrieved successfully",
 
+  // Payment
+  PAYMENT_INTENT_CREATED: 'Payment intent created successfully',
+  PAYMENT_SUCCESSFUL: 'Payment completed successfully',
+  PAYMENT_FAILED: 'Payment processing failed',
+  PAYMENT_NOT_FOUND: 'Payment not found',
+  REFUND_SUCCESSFUL: 'Refund processed successfully',
+  REFUND_FAILED: 'Refund processing failed',
+  INVALID_PAYMENT_STATUS: 'Invalid payment status for this operation',
+
   // ⚙️ General
   INTERNAL_ERROR: "Internal server error",
 };
