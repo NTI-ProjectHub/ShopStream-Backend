@@ -132,7 +132,8 @@ exports.createRestaurantRequest = asyncWrapper(async (req, res) => {
                 address: address.trim(),
                 phone: phone.trim(),
                 userId: req.user._id,
-                status: "pending"
+                status: "pending",
+                coverImage: req.menuImage || null   // ✅ Add cover image from Cloudinary
             }], { session });
 
             const restaurantRequest = await RestaurantRequest.create([{
@@ -157,7 +158,6 @@ exports.createRestaurantRequest = asyncWrapper(async (req, res) => {
         session.endSession();
     }
 });
-
 // ✅ Remove restaurant request
 exports.removeRestaurantRequest = asyncWrapper(async (req, res) => {
     const { restaurantId } = req.params;
