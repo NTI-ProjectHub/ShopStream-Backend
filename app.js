@@ -20,15 +20,14 @@ connectDB();
 
 // Middlewares
 const allowedOrigins = [
-  "http://localhost:4200",
-  "https://your-frontend-domain.com",
-  "https://amr-shawky.github.io/ShopStream"
+  /^http:\/\/localhost:\d+$/,   // any localhost port
+  /^https:\/\/.*\.github\.io$/, // any GitHub pages
+  "https://your-frontend-domain.com"
 ];
-
 
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.some(o => (o instanceof RegExp ? o.test(origin) : o === origin))) {
       callback(null, true);
     } else {
       callback(new Error("Not allowed by CORS"));
@@ -38,6 +37,7 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
 }));
+
 
 // app.use(cors({
 //   origin: "*",
