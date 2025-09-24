@@ -21,12 +21,13 @@ connectDB();
 // Middlewares
 const allowedOrigins = [
   "http://localhost:4200",
-  "https://your-frontend-domain.com"
+  "https://your-frontend-domain.com",
+  "https://amr-shawky.github.io/ShopStream"
 ];
 
 
 app.use(cors({
-  origin: 'http://localhost:4200', // Specify your Angular app’s origin
+  origin: allowedOrigins, // Specify your Angular app’s origin
   methods: ["GET", "POST", "PUT", "DELETE"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
